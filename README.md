@@ -61,8 +61,11 @@ than assume, a throwaway spike answered three questions; all three passed, and
 [ADR 0000](docs/adr/0000-x11-framing-window-spike.md) records both the verdict
 and the deprecation that is *not* thereby repealed.
 
-Not yet written: capture, encoding, the session state machine, and settings. In
-dependency order in [`docs/roadmap.md`](docs/roadmap.md).
+The session lifecycle exists and is fully tested — a pure state machine that maps
+events to effects, so policies like "a failed encode must not cost the recording"
+and "a frame that moves mid-recording aborts" are pinned by tests that need no
+display. Capture and encoding are the workers that perform those effects, and
+they are next. Order and reasoning in [`docs/roadmap.md`](docs/roadmap.md).
 
 > There is no screenshot in this README, deliberately. The middle of the window is
 > transparent, so any capture of it publishes whatever happened to be behind it.
@@ -109,16 +112,18 @@ the computed rectangle matched `xwininfo` to the pixel and was still wrong by th
 AGENTS.md               Working agreement — the failure modes already hit here
 Makefile                make check is the gate; make selftest is the one CI can't run
 src/
-  lib.rs                Library surface, so geometry is testable without a display
-  main.rs               The binary: application entry only
-  x11probe.rs           Direct X queries — origin, root size, input-shape readback
+  lib.rs                Library surface, so the logic is testable without a display
+  main.rs               The binary: application entry and shutdown ownership
+  x11probe.rs           The X11 boundary — origin, root size, input-shape readback
   geometry.rs           WidgetRect → SurfaceRect → RootPixelRect, with clipping
+  session.rs            The recording lifecycle: pure state machine, no I/O
   ui.rs                 The framing window: hole, input region, lock/unlock
 examples/
   root_geometry.rs      Query X with no GTK window involved
   framing_window.rs     The smallest useful framing window
 tests/
-  geometry.rs           Clipping — the part testable without a display
+  geometry.rs           Clipping — the part of the chain testable without a display
+  session.rs            Lifecycle policy: drift, retry, cancellation, shutdown
 docs/
   adr/                  Decision records, append-only
   architecture.md       The stack, the modules, the conversion chain

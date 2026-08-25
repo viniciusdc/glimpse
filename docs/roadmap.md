@@ -10,9 +10,13 @@ Ordered by dependency, not by date.
 - **The toolkit question, settled by evidence.** See
   [ADR 0000](adr/0000-x11-framing-window-spike.md).
 
-## Next — the session lifecycle skeleton
+## Done — the session lifecycle skeleton
 
-This comes **before** capture, which is a reversal of the original ordering; see
+`src/session.rs`, 13 tests. Pure `(State, Event) → (State, Effect)`; no process
+handles, no clock, no I/O. Every policy below is pinned by a test that runs in CI
+without a display.
+
+This came **before** capture, a reversal of the original ordering; see
 [ADR 0004](adr/0004-review-corrections-and-the-lifecycle-spine.md). Stopping,
 cancellation, shutdown, artifact retention and child reaping are not UI wrapped
 around a finished `Command` — they decide how that command is owned. Writing
@@ -29,9 +33,7 @@ failed encode cannot lose the reference to the source video it promised to
 preserve. Cancellation is defined separately for capture and for encoding,
 because they fail differently and encoding can outlast capture by a lot.
 
-Pure, display-free, and testable in CI today.
-
-## Then — capture, as the first slice through that skeleton
+## Next — capture, as the first slice through that skeleton
 
 `ffmpeg -f x11grab` against the locked rect, into a recoverable temporary video.
 Stop by writing `q` to ffmpeg's stdin, with a bounded escalation policy when the

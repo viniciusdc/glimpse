@@ -7,5 +7,6 @@
 //! [ADR 0002](../docs/adr/0002-ffmpeg-pipeline-and-session-model.md).
 
 pub mod geometry;
+pub mod session;
 pub mod ui;
 pub mod x11probe;

@@ -21,6 +21,7 @@ src/lib.rs        Library surface, so geometry is testable without a display
 src/main.rs       The binary: application entry only
 src/x11probe.rs   Direct X queries — window origin, root size, input-shape readback
 src/geometry.rs   The widget → root-pixel conversion chain, with clipping
+src/session.rs    The recording lifecycle: pure state machine, no I/O
 src/ui.rs         The framing window: hole, input region, lock/unlock
 ```
 
@@ -67,10 +68,39 @@ Runs the two checks that do work: the input shape is read back **from the X
 server**, and the computed rect is grabbed to `/tmp/glimpse-selftest.png` for
 inspection. Any Glimpse chrome visible in that image means the rect is wrong.
 
+## The session lifecycle
+
+```text
+Idle → Arming → Recording → Stopping → Encoding → Completed | Failed | Cancelled
+```
+
+`session.rs` is **pure**: it holds no process handles, no file descriptors and no
+clock. It maps `(State, Event)` to a new state plus an `Effect` describing what
+the caller must do — `StartRecorder`, `GracefulStop`, `Terminate`, `StartEncoder`,
+`Cleanup { preserve_source }`, `Unlock`. The worker that owns the ffmpeg child
+performs effects and feeds results back as events.
+
+That split is why every lifecycle policy is testable without spawning anything,
+which matters because CI has no display and no X server. The policies worth
+knowing:
+
+- **A frame that moves mid-recording aborts.** `x11grab` records a fixed
+  rectangle, so everything after the move is the wrong region while the file
+  still looks plausible. Drift terminates rather than stopping gracefully — a
+  drifted recording is not worth finishing cleanly.
+- **A failed encode keeps the recording.** `Failed` carries a retryable
+  `CapturedVideo`, so a `palettegen` error does not cost the user their capture.
+- **Cancelling still preserves the bytes.** Deleting someone's only copy on their
+  behalf is a worse default than leaving a file behind.
+- **`Stopping` is a real state.** ffmpeg can have received `q` without having
+  finalised the container; a video read during that window is truncated and looks
+  fine.
+- **Late and duplicate events are inert, not fatal.** A subprocess worker and a
+  UI thread cannot be perfectly ordered.
+
 ## What is not here yet
 
-Capture, encoding, and the session lifecycle that owns them — in that reversed
-order, per [ADR 0004](adr/0004-review-corrections-and-the-lifecycle-spine.md).
+Capture and encoding — the two workers that perform the effects above.
 
 `lock()` snapshots the rect and disables resizing. It does **not** prevent a
 window manager from moving the window, so drift is a checked invariant
