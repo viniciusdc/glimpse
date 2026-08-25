@@ -69,7 +69,8 @@ ffmpeg and no zombies.
 
 ## Done — encoding
 
-`src/encode.rs`. `palettegen` → `paletteuse`, with the **default** filter options
+`src/encode.rs`, **GIF and MP4** ([ADR 0007](adr/0007-gif-and-mp4.md)). GIF uses
+`palettegen` → `paletteuse` with the **default** filter options
 because the recommended screencast tweaks were measured and earned nothing
 ([ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md)). Staged in the
 destination's own directory so the rename is same-filesystem and genuinely
@@ -90,7 +91,7 @@ leaves a hidden `.part` file and palette in the destination directory.
 
 ## Deliberately not planned for v0.1
 
-APNG, WebM and MP4 export; audio; i18n; global hotkeys; DBus activation;
+APNG and WebM export; audio; i18n; global hotkeys; DBus activation;
 flatpak/snap/appimage packaging.
 
 **Wayland is not on this list as a "later backend".** It is a different

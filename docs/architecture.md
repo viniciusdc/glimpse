@@ -149,7 +149,15 @@ cannot disagree with the state.
 
 ## Encoding and the commit
 
-`encode.rs` runs `palettegen` then `paletteuse` with ffmpeg's **default** filter
+`encode.rs` produces **GIF or MP4** ([ADR 0007](adr/0007-gif-and-mp4.md)), chosen
+from the header chip and fixed at arming time so the destination and the encoder
+cannot disagree.
+
+MP4 always crops to even dimensions: H.264 with `yuv420p` requires them and a
+framing window produces odd sizes constantly. Cropping loses one row rather than
+rescaling, because rescaling blurs text and this is a screen recorder.
+
+GIF runs `palettegen` then `paletteuse` with ffmpeg's **default** filter
 options — the screencast tweaks folklore recommends were measured and earned
 nothing, so they are absent and a test keeps them absent
 ([ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md)).

@@ -16,6 +16,7 @@ use std::thread::JoinHandle;
 use std::path::PathBuf;
 
 use crate::capture::{Recorder, RecorderConfig, Workspace};
+use crate::encode::OutputFormat;
 use crate::session::CapturedVideo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,10 +149,10 @@ pub struct EncodingWorker {
 }
 
 impl EncodingWorker {
-    pub fn start(source: PathBuf, destination: PathBuf) -> Self {
+    pub fn start(source: PathBuf, destination: PathBuf, format: OutputFormat) -> Self {
         let (tx, events) = mpsc::channel::<EncodeEvent>();
         let handle = std::thread::spawn(move || {
-            let event = match crate::encode::encode_gif(&source, &destination) {
+            let event = match crate::encode::encode(&source, &destination, format) {
                 Ok(path) => EncodeEvent::Finished(path),
                 Err(e) => EncodeEvent::Failed(format!("{e:#}")),
             };

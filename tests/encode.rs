@@ -2,7 +2,9 @@
 //! the end-to-end encode needs ffmpeg but no display, because ffmpeg can
 //! synthesise its own input.
 
-use glimpse::encode::{encode_args, encode_gif, free_destination, palette_args};
+use glimpse::encode::{
+    encode, encode_args, free_destination, mp4_args, palette_args, OutputFormat,
+};
 use std::path::{Path, PathBuf};
 
 fn ffmpeg_available() -> bool {
@@ -109,8 +111,12 @@ fn no_measured_free_options_are_smuggled_in() {
 
 #[test]
 fn a_missing_recording_is_refused_before_ffmpeg_is_spawned() {
-    let err = encode_gif(Path::new("/nope/missing.mkv"), Path::new("/tmp/out.gif"))
-        .expect_err("should refuse");
+    let err = encode(
+        Path::new("/nope/missing.mkv"),
+        Path::new("/tmp/out.gif"),
+        OutputFormat::Gif,
+    )
+    .expect_err("should refuse");
     assert!(err.to_string().contains("no recording"), "got: {err}");
 }
 
@@ -143,7 +149,7 @@ fn encoding_produces_a_real_gif_and_commits_it_atomically() {
         .unwrap();
     assert!(made.status.success(), "could not synthesise a source clip");
 
-    let out = encode_gif(&source, &dir.join("result.gif")).expect("encode");
+    let out = encode(&source, &dir.join("result.gif"), OutputFormat::Gif).expect("encode");
     assert_eq!(out, dir.join("result.gif"));
 
     // A real GIF, not an empty file.
@@ -168,9 +174,116 @@ fn encoding_produces_a_real_gif_and_commits_it_atomically() {
     );
 
     // A second encode to the same destination must not replace the first.
-    let again = encode_gif(&source, &dir.join("result.gif")).expect("second encode");
+    let again = encode(&source, &dir.join("result.gif"), OutputFormat::Gif).expect("second encode");
     assert_eq!(again, dir.join("result-1.gif"));
     assert!(dir.join("result.gif").exists(), "the original must survive");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+// ---------------------------------------------------------------------- mp4 --
+
+#[test]
+fn mp4_always_crops_to_even_dimensions() {
+    // H.264 with yuv420p REQUIRES even dimensions, and a framing window produces
+    // odd ones constantly — the first real capture this project made was 754x437.
+    // Without this filter ffmpeg fails outright.
+    let args = mp4_args(Path::new("/tmp/in.mkv"), Path::new("/tmp/out.mp4"));
+    assert_eq!(
+        value_of(&args, "-vf"),
+        Some("crop=trunc(iw/2)*2:trunc(ih/2)*2")
+    );
+}
+
+#[test]
+fn mp4_never_rescales_because_rescaling_blurs_text() {
+    // crop drops at most one row and leaves every other pixel untouched. scale
+    // resamples the whole frame, which is the worst outcome for a screencast.
+    let args = mp4_args(Path::new("/tmp/in.mkv"), Path::new("/tmp/out.mp4"));
+    assert!(
+        !args.iter().any(|a| a.contains("scale=")),
+        "must not rescale: {args:?}"
+    );
+}
+
+#[test]
+fn mp4_targets_the_pixel_format_everything_can_play() {
+    let args = mp4_args(Path::new("/tmp/in.mkv"), Path::new("/tmp/out.mp4"));
+    assert_eq!(value_of(&args, "-c:v"), Some("libx264"));
+    assert_eq!(value_of(&args, "-pix_fmt"), Some("yuv420p"));
+    assert_eq!(value_of(&args, "-movflags"), Some("+faststart"));
+    assert_eq!(value_of(&args, "-f"), Some("mp4"));
+}
+
+#[test]
+fn formats_map_to_their_own_extensions() {
+    assert_eq!(OutputFormat::Gif.extension(), "gif");
+    assert_eq!(OutputFormat::Mp4.extension(), "mp4");
+    assert_eq!(OutputFormat::default(), OutputFormat::Gif);
+    assert_eq!(OutputFormat::all().len(), 2);
+}
+
+#[test]
+fn encoding_an_odd_sized_clip_to_mp4_produces_a_playable_file() {
+    if !ffmpeg_available() {
+        eprintln!("skipping: ffmpeg not installed");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("glimpse-mp4-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("source.mkv");
+
+    // 754x437 — the odd height that broke the first naive implementation.
+    let made = std::process::Command::new("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=754x437:rate=15:duration=1",
+            "-c:v",
+            "ffv1",
+            "-pix_fmt",
+            "bgr0",
+        ])
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        made.status.success(),
+        "could not synthesise an odd-sized clip"
+    );
+
+    let out = encode(&source, &dir.join("result.mp4"), OutputFormat::Mp4).expect("mp4 encode");
+    assert!(
+        std::fs::metadata(&out).unwrap().len() > 1000,
+        "suspiciously small"
+    );
+
+    let probe = std::process::Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name,width,height,pix_fmt",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(&out)
+        .output()
+        .unwrap();
+    let info = String::from_utf8_lossy(&probe.stdout).trim().to_string();
+    assert!(info.starts_with("h264,"), "not h264: {info}");
+    assert!(
+        info.contains("754,436"),
+        "height should be cropped to even: {info}"
+    );
+    assert!(info.contains("yuv420p"), "wrong pixel format: {info}");
 
     std::fs::remove_dir_all(&dir).ok();
 }

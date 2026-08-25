@@ -64,7 +64,7 @@ and the deprecation that is *not* thereby repealed.
 The session lifecycle exists and is fully tested — a pure state machine that maps
 events to effects, so policies like "a failed encode must not cost the recording"
 and "a frame that moves mid-recording aborts" are pinned by tests that need no
-display. **Record → GIF works end to end.** The button drives the machine, recording and
+display. **Record → GIF or MP4 works end to end.** The button drives the machine, recording and
 encoding both run off the UI thread, a frame that moves mid-recording aborts, and
 the finished GIF is committed with an atomic same-filesystem rename. What is
 missing is the application furniture: choosing where output goes, persisted
@@ -167,6 +167,7 @@ docs/
   - [0004](docs/adr/0004-review-corrections-and-the-lifecycle-spine.md) — Review corrections, and a lifecycle spine before capture
   - [0005](docs/adr/0005-gif-encoding-and-the-atomic-commit.md) — GIF encoding, and how the output is committed
   - [0006](docs/adr/0006-the-header-is-the-chrome.md) — The header bar is the window chrome
+  - [0007](docs/adr/0007-gif-and-mp4.md) — GIF and MP4 as the initial output formats
 <!-- END GENERATED adr-index -->
 
 ## Licence

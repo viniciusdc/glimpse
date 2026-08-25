@@ -18,6 +18,7 @@
 
 use std::path::PathBuf;
 
+use crate::encode::OutputFormat;
 use crate::geometry::RootPixelRect;
 
 /// What to record, fixed at arming time and never re-read afterwards.
@@ -27,6 +28,7 @@ pub struct CaptureRequest {
     pub framerate: u32,
     pub capture_mouse: bool,
     pub destination: PathBuf,
+    pub format: OutputFormat,
 }
 
 /// A finished recording that has not been encoded yet.

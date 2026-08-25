@@ -25,6 +25,92 @@ use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
 
+/// What a recording is turned into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OutputFormat {
+    /// Two-pass palette GIF. Universally embeddable, large.
+    #[default]
+    Gif,
+    /// H.264 in MP4. Smaller, but not an image — it will not autoplay inline
+    /// everywhere a GIF does.
+    ///
+    /// How much smaller depends entirely on motion, and the folklore figure of
+    /// "an order of magnitude" did not survive measurement: on a mostly-static
+    /// 4-second desktop capture it was **1.5x** (27,974 B GIF vs 18,248 B MP4),
+    /// because a palette compresses static content well. The gap widens with
+    /// motion; do not promise a number.
+    Mp4,
+}
+
+impl OutputFormat {
+    pub fn extension(self) -> &'static str {
+        match self {
+            OutputFormat::Gif => "gif",
+            OutputFormat::Mp4 => "mp4",
+        }
+    }
+
+    /// The ffmpeg muxer name, stated explicitly because output is staged under a
+    /// `.part` suffix that ffmpeg cannot infer a format from.
+    pub fn muxer(self) -> &'static str {
+        match self {
+            OutputFormat::Gif => "gif",
+            OutputFormat::Mp4 => "mp4",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            OutputFormat::Gif => "GIF",
+            OutputFormat::Mp4 => "MP4",
+        }
+    }
+
+    pub fn all() -> [OutputFormat; 2] {
+        [OutputFormat::Gif, OutputFormat::Mp4]
+    }
+}
+
+/// H.264 arguments.
+///
+/// From ffmpeg's own documentation (`ffmpeg -h encoder=libx264`,
+/// <https://ffmpeg.org/ffmpeg-formats.html>), not from another project (ADR 0003).
+///
+/// The crop filter is not optional. **H.264 with `yuv420p` requires even
+/// dimensions**, and a framing window produces odd ones constantly — the first
+/// real capture this project made was 754x437. Without it ffmpeg fails with
+/// "Error while opening encoder", verified on this machine.
+///
+/// Cropping is chosen over the alternatives deliberately. `pad` adds a visible
+/// black line; `scale` resamples the entire frame, which blurs text and is the
+/// worst possible outcome for a screen recording. Cropping drops at most one row
+/// or column and leaves every remaining pixel untouched.
+pub fn mp4_args(source: &Path, output: &Path) -> Vec<String> {
+    vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-y".into(),
+        "-i".into(),
+        source.to_string_lossy().into_owned(),
+        "-vf".into(),
+        "crop=trunc(iw/2)*2:trunc(ih/2)*2".into(),
+        "-c:v".into(),
+        "libx264".into(),
+        // yuv420p rather than a higher-fidelity pixel format: it is the one every
+        // player and browser decodes. Correctness of playback beats chroma here.
+        "-pix_fmt".into(),
+        "yuv420p".into(),
+        // Moves the index to the front so the file plays before it has fully
+        // downloaded — the normal case for something you share.
+        "-movflags".into(),
+        "+faststart".into(),
+        "-f".into(),
+        "mp4".into(),
+        output.to_string_lossy().into_owned(),
+    ]
+}
+
 /// Pass 1: analyse the whole clip and write an optimal palette.
 ///
 /// The palette is a single PNG. `-y` because the path is ours and freshly made.
@@ -59,8 +145,8 @@ pub fn encode_args(source: &Path, palette: &Path, output: &Path) -> Vec<String> 
         "-lavfi".into(),
         "paletteuse".into(),
         // Stated explicitly rather than inferred from the extension: the output
-        // is staged as `.gif.part` for the atomic commit, and ffmpeg cannot
-        // guess a muxer from that.
+        // is staged with a `.part` suffix for the atomic commit, and ffmpeg
+        // cannot guess a muxer from that.
         "-f".into(),
         "gif".into(),
         output.to_string_lossy().into_owned(),
@@ -110,7 +196,7 @@ pub fn free_destination(desired: &Path, exists: impl Fn(&Path) -> bool) -> PathB
 ///
 /// On any failure the partial output is removed; `source` is never touched, so a
 /// failed encode costs nothing but time (ADR 0002).
-pub fn encode_gif(source: &Path, destination: &Path) -> Result<PathBuf> {
+pub fn encode(source: &Path, destination: &Path, format: OutputFormat) -> Result<PathBuf> {
     if !source.exists() {
         return Err(anyhow!("no recording at {}", source.display()));
     }
@@ -119,15 +205,23 @@ pub fn encode_gif(source: &Path, destination: &Path) -> Result<PathBuf> {
 
     let final_path = free_destination(destination, |p| p.exists());
     let staged = dir.join(format!(
-        ".glimpse-{}-{}.gif.part",
+        ".glimpse-{}-{}.{}.part",
         std::process::id(),
-        final_path.file_stem().unwrap_or_default().to_string_lossy()
+        final_path.file_stem().unwrap_or_default().to_string_lossy(),
+        format.extension()
     ));
     let palette = dir.join(format!(".glimpse-{}-palette.png", std::process::id()));
 
     let result = (|| -> Result<()> {
-        run(&palette_args(source, &palette)).context("generating the palette")?;
-        run(&encode_args(source, &palette, &staged)).context("encoding the GIF")?;
+        match format {
+            OutputFormat::Gif => {
+                run(&palette_args(source, &palette)).context("generating the palette")?;
+                run(&encode_args(source, &palette, &staged)).context("encoding the GIF")?;
+            }
+            OutputFormat::Mp4 => {
+                run(&mp4_args(source, &staged)).context("encoding the MP4")?;
+            }
+        }
         Ok(())
     })();
 

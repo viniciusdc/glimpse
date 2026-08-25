@@ -4,6 +4,7 @@
 //! only exist in prose. None of them spawn a process or open a display, which is
 //! the point: CI has neither.
 
+use glimpse::encode::OutputFormat;
 use glimpse::geometry::RootPixelRect;
 use glimpse::session::{
     transition, CaptureRequest, CapturedVideo, Effect, Event, State, StopReason,
@@ -21,6 +22,7 @@ fn request() -> CaptureRequest {
         framerate: 15,
         capture_mouse: true,
         destination: PathBuf::from("/home/u/out.gif"),
+        format: OutputFormat::Gif,
     }
 }
 
@@ -267,4 +269,23 @@ fn only_active_states_are_active() {
         output: PathBuf::new()
     }
     .is_active());
+}
+
+#[test]
+fn the_format_is_fixed_at_arming_and_carried_through_the_session() {
+    // The destination extension and the encoder must agree, so the format is
+    // captured in the request rather than read live when encoding starts.
+    let mp4 = CaptureRequest {
+        destination: PathBuf::from("/home/u/out.mp4"),
+        format: OutputFormat::Mp4,
+        ..request()
+    };
+    let (state, effect) = run(vec![Event::Arm(mp4.clone()), Event::Armed]);
+    assert_eq!(
+        state,
+        State::Recording {
+            request: mp4.clone()
+        }
+    );
+    assert_eq!(effect, Effect::StartRecorder(mp4));
 }

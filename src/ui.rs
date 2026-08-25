@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::capture::{RecorderConfig, Workspace};
+use crate::encode::OutputFormat;
 use crate::geometry::{capture_rect, RootPixelRect};
 use crate::session::{transition, CaptureRequest, Effect, Event, State};
 use crate::worker::{EncodeEvent, EncodingWorker, RecordingWorker, WorkerEvent};
@@ -181,8 +182,12 @@ pub struct FramingWindow {
     reveal: gtk::Button,
     /// When the current recording started, for the elapsed readout.
     started: Cell<Option<std::time::Instant>>,
-    /// The last GIF written, so "Show in folder" knows where to point.
+    /// The last output written, so "Show in folder" knows where to point.
     last_output: RefCell<Option<PathBuf>>,
+    /// The chosen output format. Fixed for the duration of a session — it is
+    /// copied into the `CaptureRequest` at arming time.
+    format: Cell<OutputFormat>,
+    chip: gtk::MenuButton,
 }
 
 impl FramingWindow {
@@ -247,7 +252,16 @@ impl FramingWindow {
         record.add_css_class("glimpse-action");
         record.set_valign(gtk::Align::Center);
 
-        let chip = gtk::Label::new(Some("GIF"));
+        let format_menu = gio::Menu::new();
+        for f in OutputFormat::all() {
+            let item = gio::MenuItem::new(Some(f.label()), None);
+            item.set_action_and_target_value(Some("win.format"), Some(&f.extension().to_variant()));
+            format_menu.append_item(&item);
+        }
+        let chip = gtk::MenuButton::builder()
+            .label(OutputFormat::default().label())
+            .menu_model(&format_menu)
+            .build();
         chip.add_css_class("glimpse-chip");
         chip.set_valign(gtk::Align::Center);
 
@@ -352,6 +366,8 @@ impl FramingWindow {
             reveal: reveal.clone(),
             started: Cell::new(None),
             last_output: RefCell::new(None),
+            format: Cell::new(OutputFormat::default()),
+            chip: chip.clone(),
         });
 
         me.install_input_region_updater();
@@ -374,6 +390,37 @@ impl FramingWindow {
                     )),
                     Err(e) => me2.status.set_text(&format!("geometry error: {e}")),
                 }
+            });
+            window.add_action(&action);
+        }
+
+        {
+            let me2 = me.clone();
+            let action = gio::SimpleAction::new_stateful(
+                "format",
+                Some(glib::VariantTy::STRING),
+                &OutputFormat::default().extension().to_variant(),
+            );
+            action.connect_activate(move |action, value| {
+                let Some(chosen) = value.and_then(|v| v.str().map(str::to_owned)) else {
+                    return;
+                };
+                let Some(format) = OutputFormat::all()
+                    .into_iter()
+                    .find(|f| f.extension() == chosen)
+                else {
+                    return;
+                };
+                // Changing format mid-session would leave the destination and the
+                // encoder disagreeing, so it is refused rather than half-applied.
+                if me2.state.borrow().is_active() {
+                    me2.status
+                        .set_text("finish the current recording before changing format");
+                    return;
+                }
+                action.set_state(&chosen.to_variant());
+                me2.format.set(format);
+                me2.chip.set_label(format.label());
             });
             window.add_action(&action);
         }
@@ -544,7 +591,11 @@ impl FramingWindow {
         // `GLIMPSE_SELFTEST=record` drives a real record/stop cycle through the
         // same code path the button uses, so the wiring is verified end to end
         // rather than only the geometry.
-        if mode == "record" {
+        if mode == "record" || mode == "record-mp4" {
+            if mode == "record-mp4" {
+                self.format.set(OutputFormat::Mp4);
+                self.chip.set_label(OutputFormat::Mp4.label());
+            }
             let me = self.clone();
             glib::timeout_add_seconds_local_once(2, move || {
                 println!("[smoke] pressing Record");
@@ -694,11 +745,13 @@ impl FramingWindow {
                         return;
                     }
                 };
+                let format = self.format.get();
                 let request = CaptureRequest {
                     rect,
                     framerate: 15,
                     capture_mouse: true,
-                    destination: default_destination(),
+                    destination: default_destination(format),
+                    format,
                 };
                 self.dispatch(Event::Arm(request));
                 // Geometry is snapshotted and the window is fixed, so arming is
@@ -776,8 +829,11 @@ impl FramingWindow {
                 // The recording is finished and its child is gone; release the
                 // recorder so its workspace is not held open during the encode.
                 self.worker.borrow_mut().take();
-                *self.encoder.borrow_mut() =
-                    Some(EncodingWorker::start(source.path.clone(), destination));
+                *self.encoder.borrow_mut() = Some(EncodingWorker::start(
+                    source.path.clone(),
+                    destination,
+                    self.format.get(),
+                ));
                 None
             }
 
@@ -986,13 +1042,13 @@ fn display_path(p: &std::path::Path) -> String {
     }
 }
 
-/// Where a finished GIF goes until output selection exists.
+/// Where a finished recording goes until output selection exists.
 ///
 /// Collision policy is deliberately not decided here — it belongs with the
 /// encoding milestone, because it governs the atomic commit.
-fn default_destination() -> std::path::PathBuf {
+fn default_destination(format: OutputFormat) -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    std::path::PathBuf::from(home).join("glimpse.gif")
+    std::path::PathBuf::from(home).join(format!("glimpse.{}", format.extension()))
 }
 
 /// Thickness of the invisible grab strips along each edge, in logical pixels.
