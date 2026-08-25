@@ -104,8 +104,10 @@ knowing:
 ## Capture
 
 `capture.rs` performs the `StartRecorder` / `GracefulStop` / `Terminate` effects.
-`Recorder` exclusively owns the ffmpeg child and waits on it on every exit path,
-with a `Drop` backstop so a panic or early return cannot leak a process.
+`Recorder` exclusively owns the ffmpeg child and waits on it on every exit path
+the process controls, with a `Drop` backstop so a panic or early return cannot
+leak one. A hard kill is the exception — `Drop` cannot run, and the child is
+orthaned; see [ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md).
 
 The intermediate is **ffv1 in Matroska at `bgr0`**: x11grab emits `bgr0` natively
 and ffv1 stores it unchanged, so the pipeline is conversion-free and the

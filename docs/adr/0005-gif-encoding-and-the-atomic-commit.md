@@ -64,6 +64,11 @@ recording is never touched.
   dropping the encoding worker joins it — quitting during an encode waits for it
   to finish rather than killing it. ADR 0002 asked for cancellation to be defined
   separately for capture and encoding; capture has it, encoding does not yet.
+- **A hard kill (SIGKILL, `XKillClient`) orphans the ffmpeg child and leaks
+  the session workspace.** `Drop` cannot run, so nothing reaps it — demonstrated
+  accidentally while testing resize, which left two ffmpeg processes recording
+  into deleted directories. Every exit path the *process* controls is covered;
+  one it does not control is not. `prctl(PR_SET_PDEATHSIG)` would close this.
 - **A process killed mid-encode leaves litter**: the `.part` file and the palette
   stay in the destination directory. They are hidden and prefixed `.glimpse-`, so
   they are identifiable, but nothing sweeps them up.

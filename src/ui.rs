@@ -62,7 +62,11 @@ window.glimpse { background: transparent; }
   min-height: 8px;
   animation: glimpse-pulse 1.4s ease-in-out infinite;
 }
-@keyframes glimpse-pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.25 } }
+@keyframes glimpse-pulse {
+  from { opacity: 1; }
+  50%  { opacity: 0.25; }
+  to   { opacity: 1; }
+}
 
 .glimpse-action {
   background: #3689e6;
@@ -142,6 +146,7 @@ window.glimpse { background: transparent; }
   font-size: 11.5px;
 }
 .glimpse-link:hover { color: #b8d0fb; }
+.glimpse-grip-debug { background: rgba(255,0,255,0.6); }
 "#;
 
 pub struct FramingWindow {
@@ -268,9 +273,15 @@ impl FramingWindow {
         header.append(&record);
         header.append(&trailing);
 
-        // Dragging the header moves the window. Without this an undecorated
+        // Dragging the header moves the window; without this an undecorated
         // framing window could not be positioned, which is the whole interaction.
         let header_handle = gtk::WindowHandle::builder().child(&header).build();
+
+        // GLIMPSE_DECORATIONS=server hands the frame back to the window manager.
+        let system_decorations = std::env::var("GLIMPSE_DECORATIONS")
+            .map(|v| v == "server")
+            .unwrap_or(false);
+        window.set_decorated(system_decorations);
 
         // ---- capture region ----------------------------------------------
         let hole = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -312,7 +323,14 @@ impl FramingWindow {
         shell.append(&header_handle);
         shell.append(&frame);
         shell.append(&status_bar);
-        window.set_child(Some(&shell));
+
+        // Resize edges sit above everything, at the window's rim only.
+        let overlay = gtk::Overlay::new();
+        overlay.set_child(Some(&shell));
+        if !system_decorations {
+            install_resize_edges(&window, &overlay);
+        }
+        window.set_child(Some(&overlay));
 
         let me = Rc::new(Self {
             window: window.clone(),
@@ -975,4 +993,140 @@ fn display_path(p: &std::path::Path) -> String {
 fn default_destination() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     std::path::PathBuf::from(home).join("glimpse.gif")
+}
+
+/// Thickness of the invisible grab strips along each edge, in logical pixels.
+/// Wide enough to hit without aiming, narrow enough not to eat the frame border.
+const RESIZE_GRIP: i32 = 8;
+/// Corner grips are square and take priority over the edges they overlap.
+const RESIZE_CORNER: i32 = 16;
+
+/// Give the window its own resize edges.
+///
+/// GTK provides these for decorated windows and — measured on gala — for neither
+/// an undecorated window nor one with a replaced titlebar. Since the frame's size
+/// *is* the capture region, resizing is not a nicety here, so Glimpse draws the
+/// grips itself and asks the compositor to take over the drag through
+/// `Toplevel::begin_resize`.
+fn install_resize_edges(window: &gtk::ApplicationWindow, overlay: &gtk::Overlay) {
+    use gtk::gdk::SurfaceEdge;
+    use gtk::{Align, Box as GtkBox, Orientation};
+
+    // (edge, halign, valign, width, height, cursor)
+    let grips: [(SurfaceEdge, Align, Align, i32, i32, &str); 8] = [
+        (
+            SurfaceEdge::North,
+            Align::Fill,
+            Align::Start,
+            -1,
+            RESIZE_GRIP,
+            "n-resize",
+        ),
+        (
+            SurfaceEdge::South,
+            Align::Fill,
+            Align::End,
+            -1,
+            RESIZE_GRIP,
+            "s-resize",
+        ),
+        (
+            SurfaceEdge::West,
+            Align::Start,
+            Align::Fill,
+            RESIZE_GRIP,
+            -1,
+            "w-resize",
+        ),
+        (
+            SurfaceEdge::East,
+            Align::End,
+            Align::Fill,
+            RESIZE_GRIP,
+            -1,
+            "e-resize",
+        ),
+        // Corners last so they stack above the edges they overlap.
+        (
+            SurfaceEdge::NorthWest,
+            Align::Start,
+            Align::Start,
+            RESIZE_CORNER,
+            RESIZE_CORNER,
+            "nw-resize",
+        ),
+        (
+            SurfaceEdge::NorthEast,
+            Align::End,
+            Align::Start,
+            RESIZE_CORNER,
+            RESIZE_CORNER,
+            "ne-resize",
+        ),
+        (
+            SurfaceEdge::SouthWest,
+            Align::Start,
+            Align::End,
+            RESIZE_CORNER,
+            RESIZE_CORNER,
+            "sw-resize",
+        ),
+        (
+            SurfaceEdge::SouthEast,
+            Align::End,
+            Align::End,
+            RESIZE_CORNER,
+            RESIZE_CORNER,
+            "se-resize",
+        ),
+    ];
+
+    for (edge, halign, valign, w, h, cursor) in grips {
+        let grip = GtkBox::new(Orientation::Horizontal, 0);
+        grip.set_halign(halign);
+        grip.set_valign(valign);
+        if w > 0 {
+            grip.set_size_request(w, -1);
+        }
+        if h > 0 {
+            grip.set_size_request(grip.width_request(), h);
+        }
+        grip.set_cursor_from_name(Some(cursor));
+        if std::env::var("GLIMPSE_DEBUG_GRIPS").is_ok() {
+            grip.add_css_class("glimpse-grip-debug");
+        }
+
+        let gesture = gtk::GestureClick::new();
+        gesture.set_button(gtk::gdk::BUTTON_PRIMARY);
+        let win = window.clone();
+        let grip_ref = grip.clone();
+        gesture.connect_pressed(move |g, _, x, y| {
+            let Some(surface) = win.surface() else {
+                return;
+            };
+            let Ok(toplevel) = surface.downcast::<gtk::gdk::Toplevel>() else {
+                return;
+            };
+            // begin_resize wants surface coordinates; the gesture reports widget
+            // ones. Same chain as `geometry.rs`, for the same reason.
+            let point = gtk::graphene::Point::new(x as f32, y as f32);
+            let Some(in_window) = grip_ref.compute_point(&win, &point) else {
+                return;
+            };
+            let (tx, ty) = win.surface_transform();
+            toplevel.begin_resize(
+                edge,
+                g.device().as_ref(),
+                g.current_button() as i32,
+                in_window.x() as f64 + tx,
+                in_window.y() as f64 + ty,
+                g.current_event_time(),
+            );
+            // Hand the sequence back: GTK's implicit grab would otherwise keep
+            // holding the pointer and the compositor's resize grab never starts.
+            g.set_state(gtk::EventSequenceState::Denied);
+        });
+        grip.add_controller(gesture);
+        overlay.add_overlay(&grip);
+    }
 }

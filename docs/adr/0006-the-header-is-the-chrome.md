@@ -32,15 +32,37 @@ directly onto the session machine: idle, recording (red border, pulsing dot,
 elapsed timer), saved (blue dot, path, "Show in folder"), aborted (amber border
 and the preserved-recording path).
 
-## Costs accepted
+## Glimpse draws its own resize edges
 
-- **Edge-resizing an undecorated GTK4 window is unverified.** GTK is expected to
-  provide invisible resize edges for CSD windows, but that was not tested here —
-  automating a drag from an edge is not something this project can do, and the
-  developer's own window manager is the only real test. This matters more than it
-  usually would: **the frame's size *is* the capture region**, so if resize is
-  lost the product is lost. `GLIMPSE_DECORATIONS=server` exists for exactly this
-  outcome, and it is the first thing to try if resizing feels wrong.
+The first attempt shipped `set_decorated(false)` and assumed GTK would still
+provide resize edges. **It does not**, and the window could not be resized at all
+— reported by the developer, then reproduced by simulating an edge drag with
+`xdotool` and watching the geometry not move.
+
+`set_titlebar(custom)` was tried next, on the theory that keeping client-side
+decorations keeps their invisible resize borders. On gala it reported
+`_GTK_FRAME_EXTENTS = 0,0,0,0` — no margin at all — and resize stayed broken.
+
+So Glimpse installs its own grips: 8px edge strips and 16px corners in a
+`GtkOverlay`, each with the matching resize cursor, handing the drag to the
+compositor through `Toplevel::begin_resize`.
+
+**The part that made it work was releasing the gesture.** `begin_resize` alone did
+nothing: GTK's implicit pointer grab from the click gesture kept holding the
+pointer, so the compositor's resize grab never started. Setting the sequence to
+`EventSequenceState::Denied` straight after the call fixes it.
+
+Verified by simulated drags — east 760→850, south 520→590, south-east corner
+760×590→810×630 — against a control run with `GLIMPSE_DECORATIONS=server` proving
+the test method detects a resize that is known to work. The control mattered: an
+earlier run of the same test produced a **false negative**, because the window had
+not been activated and the first synthetic click was consumed giving it focus.
+
+## Costs accepted
+- Eight overlay widgets exist purely to be invisible and catch drags. They cost
+  nothing visually, but they are exactly the kind of thing a later refactor
+  deletes without noticing the window stops resizing.
+  `GLIMPSE_DECORATIONS=server` remains the escape hatch.
 - Custom chrome means Glimpse no longer inherits the desktop's window controls or
   its theming for the title area. On a framing window that is the point, but it is
   still a divergence from the platform.
