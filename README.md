@@ -166,6 +166,7 @@ docs/
   - [0003](docs/adr/0003-apache-2-0.md) — Apache-2.0, and what that requires of the capture implementation
   - [0004](docs/adr/0004-review-corrections-and-the-lifecycle-spine.md) — Review corrections, and a lifecycle spine before capture
   - [0005](docs/adr/0005-gif-encoding-and-the-atomic-commit.md) — GIF encoding, and how the output is committed
+  - [0006](docs/adr/0006-the-header-is-the-chrome.md) — The header bar is the window chrome
 <!-- END GENERATED adr-index -->
 
 ## Licence

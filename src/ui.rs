@@ -19,7 +19,7 @@
 
 use anyhow::{anyhow, Result};
 use gtk::prelude::*;
-use gtk::{cairo, glib};
+use gtk::{cairo, gio, glib};
 use gtk4 as gtk;
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
@@ -31,12 +31,118 @@ use crate::session::{transition, CaptureRequest, Effect, Event, State};
 use crate::worker::{EncodeEvent, EncodingWorker, RecordingWorker, WorkerEvent};
 use crate::x11probe::{self, shape_covers, X11Probe};
 
-const CSS: &str = "
+/// Ported from the `Glimpse Screen Recording UI` design document, tokens kept
+/// verbatim so the app and the mock cannot drift on colour.
+const CSS: &str = r#"
 window.glimpse { background: transparent; }
-.glimpse-frame { border: 3px solid @accent_bg_color; border-radius: 2px; }
-.glimpse-hole  { background: transparent; }
-.glimpse-chrome { background: rgba(30,30,30,0.92); border-radius: 6px; }
-";
+
+.glimpse-shell {
+  border-radius: 10px;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+}
+
+/* Header --------------------------------------------------------------- */
+.glimpse-header {
+  background: #282c33;
+  border-bottom: 1px solid rgba(0,0,0,0.4);
+  border-radius: 10px 10px 0 0;
+  min-height: 44px;
+  padding: 0 12px;
+}
+.glimpse-meta {
+  color: #8b939e;
+  font-size: 12px;
+  font-feature-settings: "tnum";
+}
+.glimpse-elapsed { color: #c3c9d2; }
+.glimpse-recdot {
+  background: #e04b4b;
+  border-radius: 50%;
+  min-width: 8px;
+  min-height: 8px;
+  animation: glimpse-pulse 1.4s ease-in-out infinite;
+}
+@keyframes glimpse-pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.25 } }
+
+.glimpse-action {
+  background: #3689e6;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 500;
+  border: 0;
+  border-radius: 14px;
+  min-height: 28px;
+  padding: 0 16px;
+  box-shadow: none;
+  text-shadow: none;
+}
+.glimpse-action:hover { background: #4a97ea; }
+.glimpse-action:disabled { opacity: 0.55; }
+.state-recording .glimpse-action,
+.state-stopping  .glimpse-action { background: #c6262e; }
+.state-recording .glimpse-action:hover { background: #d2343c; }
+
+.glimpse-bullet { background: #ffffff; min-width: 9px; min-height: 9px; border-radius: 50%; }
+.state-recording .glimpse-bullet,
+.state-stopping  .glimpse-bullet { min-width: 8px; min-height: 8px; border-radius: 0; }
+
+.glimpse-chip {
+  color: #a7aeb9;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.6px;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 5px;
+  padding: 2px 7px;
+}
+.glimpse-menu {
+  color: #a7aeb9;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0;
+}
+.glimpse-menu:hover { background: rgba(255,255,255,0.08); border-radius: 5px; }
+.glimpse-menu > button { padding: 0 4px; min-height: 24px; }
+
+/* The capture region ----------------------------------------------------
+   The border lives on this widget, and the capture target inside it paints
+   nothing — see ADR 0000. Never move this border onto .glimpse-hole. */
+.glimpse-frame { border: 3px solid #3689e6; }
+.state-recording .glimpse-frame,
+.state-stopping  .glimpse-frame { border-color: #e04b4b; }
+.state-aborted   .glimpse-frame { border-color: #e5a50a; }
+.glimpse-hole { background: transparent; }
+
+/* Status ---------------------------------------------------------------- */
+.glimpse-status {
+  background: rgba(16,18,22,0.9);
+  border-radius: 0 0 10px 10px;
+  min-height: 32px;
+  padding: 0 14px;
+  color: #8b939e;
+  font-size: 11.5px;
+}
+.glimpse-status label { color: #8b939e; font-size: 11.5px; }
+.state-recording .glimpse-status label { color: #d78f8f; font-feature-settings: "tnum"; }
+.state-aborted   .glimpse-status label { color: #e0b45c; }
+
+.glimpse-statusdot { min-width: 7px; min-height: 7px; border-radius: 50%; background: #68b3f0; }
+.state-aborted .glimpse-statusdot { background: #e5a50a; }
+
+.glimpse-link {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  min-height: 0;
+  color: #8ab4f8;
+  font-size: 11.5px;
+}
+.glimpse-link:hover { color: #b8d0fb; }
+"#;
 
 pub struct FramingWindow {
     pub window: gtk::ApplicationWindow,
@@ -61,6 +167,17 @@ pub struct FramingWindow {
     workspace: RefCell<Option<PathBuf>>,
     status: gtk::Label,
     record: gtk::Button,
+    record_label: gtk::Label,
+    shell: gtk::Box,
+    size_label: gtk::Label,
+    elapsed: gtk::Label,
+    rec_dot: gtk::Box,
+    status_dot: gtk::Box,
+    reveal: gtk::Button,
+    /// When the current recording started, for the elapsed readout.
+    started: Cell<Option<std::time::Instant>>,
+    /// The last GIF written, so "Show in folder" knows where to point.
+    last_output: RefCell<Option<PathBuf>>,
 }
 
 impl FramingWindow {
@@ -83,6 +200,79 @@ impl FramingWindow {
             .build();
         window.add_css_class("glimpse");
 
+        // The design has no title bar: the header IS the chrome. Server-side
+        // decorations remain available via GLIMPSE_DECORATIONS=server, because an
+        // undecorated window that cannot be resized would break the product —
+        // the frame's size *is* the capture region.
+        let server_decorations = std::env::var("GLIMPSE_DECORATIONS")
+            .map(|v| v == "server")
+            .unwrap_or(false);
+        window.set_decorated(server_decorations);
+
+        // ---- header ------------------------------------------------------
+        let rec_dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        rec_dot.add_css_class("glimpse-recdot");
+        rec_dot.set_valign(gtk::Align::Center);
+        rec_dot.set_visible(false);
+
+        let size_label = gtk::Label::new(Some("0 × 0"));
+        size_label.add_css_class("glimpse-meta");
+
+        let elapsed = gtk::Label::new(None);
+        elapsed.add_css_class("glimpse-meta");
+        elapsed.add_css_class("glimpse-elapsed");
+        elapsed.set_visible(false);
+
+        let meta = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        meta.set_hexpand(true);
+        meta.set_halign(gtk::Align::Start);
+        meta.append(&rec_dot);
+        meta.append(&size_label);
+        meta.append(&elapsed);
+
+        let bullet = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        bullet.add_css_class("glimpse-bullet");
+        bullet.set_valign(gtk::Align::Center);
+        let record_label = gtk::Label::new(Some("Record"));
+        let record_content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        record_content.append(&bullet);
+        record_content.append(&record_label);
+
+        let record = gtk::Button::builder().child(&record_content).build();
+        record.add_css_class("glimpse-action");
+        record.set_valign(gtk::Align::Center);
+
+        let chip = gtk::Label::new(Some("GIF"));
+        chip.add_css_class("glimpse-chip");
+        chip.set_valign(gtk::Align::Center);
+
+        let menu_model = gio::Menu::new();
+        menu_model.append(Some("Show capture rect"), Some("win.show-rect"));
+        menu_model.append(Some("Quit"), Some("window.close"));
+        let menu = gtk::MenuButton::builder()
+            .icon_name("open-menu-symbolic")
+            .menu_model(&menu_model)
+            .build();
+        menu.add_css_class("glimpse-menu");
+        menu.set_valign(gtk::Align::Center);
+
+        let trailing = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        trailing.set_hexpand(true);
+        trailing.set_halign(gtk::Align::End);
+        trailing.append(&chip);
+        trailing.append(&menu);
+
+        let header = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        header.add_css_class("glimpse-header");
+        header.append(&meta);
+        header.append(&record);
+        header.append(&trailing);
+
+        // Dragging the header moves the window. Without this an undecorated
+        // framing window could not be positioned, which is the whole interaction.
+        let header_handle = gtk::WindowHandle::builder().child(&header).build();
+
+        // ---- capture region ----------------------------------------------
         let hole = gtk::Box::new(gtk::Orientation::Vertical, 0);
         hole.add_css_class("glimpse-hole");
         hole.set_hexpand(true);
@@ -94,35 +284,35 @@ impl FramingWindow {
         frame.set_vexpand(true);
         frame.append(&hole);
 
+        // ---- status ------------------------------------------------------
+        let status_dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        status_dot.add_css_class("glimpse-statusdot");
+        status_dot.set_valign(gtk::Align::Center);
+        status_dot.set_visible(false);
+
         let status = gtk::Label::new(Some("Position the frame, then Record."));
-        status.add_css_class("dim-label");
-        status.set_margin_top(4);
-        status.set_margin_bottom(4);
+        status.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+        status.set_xalign(0.0);
+        status.set_hexpand(true);
 
-        let record = gtk::Button::with_label("Record");
-        record.add_css_class("suggested-action");
-        let show_rect = gtk::Button::with_label("Show capture rect");
+        let reveal = gtk::Button::with_label("Show in folder");
+        reveal.add_css_class("glimpse-link");
+        reveal.set_valign(gtk::Align::Center);
+        reveal.set_visible(false);
 
-        let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        toolbar.add_css_class("glimpse-chrome");
-        toolbar.set_halign(gtk::Align::Center);
-        toolbar.set_margin_top(8);
-        toolbar.set_margin_bottom(8);
-        toolbar.set_margin_start(8);
-        toolbar.set_margin_end(8);
-        for w in [&record, &show_rect] {
-            w.set_margin_top(6);
-            w.set_margin_bottom(6);
-            w.set_margin_start(6);
-            w.set_margin_end(6);
-            toolbar.append(w);
-        }
+        let status_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        status_bar.add_css_class("glimpse-status");
+        status_bar.append(&status_dot);
+        status_bar.append(&status);
+        status_bar.append(&reveal);
 
-        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        root.append(&toolbar);
-        root.append(&frame);
-        root.append(&status);
-        window.set_child(Some(&root));
+        let shell = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        shell.add_css_class("glimpse-shell");
+        shell.add_css_class("state-idle");
+        shell.append(&header_handle);
+        shell.append(&frame);
+        shell.append(&status_bar);
+        window.set_child(Some(&shell));
 
         let me = Rc::new(Self {
             window: window.clone(),
@@ -135,15 +325,27 @@ impl FramingWindow {
             workspace: RefCell::new(None),
             status: status.clone(),
             record: record.clone(),
+            record_label: record_label.clone(),
+            shell: shell.clone(),
+            size_label: size_label.clone(),
+            elapsed: elapsed.clone(),
+            rec_dot: rec_dot.clone(),
+            status_dot: status_dot.clone(),
+            reveal: reveal.clone(),
+            started: Cell::new(None),
+            last_output: RefCell::new(None),
         });
 
         me.install_input_region_updater();
         me.install_selftest();
         me.install_driver();
 
+        // Reachable from the header menu; the design has no room for a second
+        // button and this is a developer affordance, not a primary action.
         {
             let me2 = me.clone();
-            show_rect.connect_clicked(move |_| {
+            let action = gio::SimpleAction::new("show-rect", None);
+            action.connect_activate(move |_, _| {
                 match capture_rect(&me2.window, &me2.hole, &me2.probe) {
                     Ok(r) if r.is_capturable() => me2
                         .status
@@ -153,6 +355,23 @@ impl FramingWindow {
                         r.w, r.h
                     )),
                     Err(e) => me2.status.set_text(&format!("geometry error: {e}")),
+                }
+            });
+            window.add_action(&action);
+        }
+
+        {
+            let me2 = me.clone();
+            reveal.connect_clicked(move |_| {
+                let Some(path) = me2.last_output.borrow().clone() else {
+                    return;
+                };
+                let dir = path.parent().unwrap_or(&path).to_path_buf();
+                let uri = format!("file://{}", dir.display());
+                if let Err(e) =
+                    gio::AppInfo::launch_default_for_uri(&uri, gio::AppLaunchContext::NONE)
+                {
+                    eprintln!("glimpse: could not open {uri}: {e}");
                 }
             });
         }
@@ -593,6 +812,9 @@ impl FramingWindow {
                     }
                 }
 
+                me.update_size_label();
+                me.tick_elapsed();
+
                 // The checked invariant from ADR 0004: x11grab records a fixed
                 // rectangle, so a moved frame means everything after the move is
                 // the wrong region — and the file would still look plausible.
@@ -611,42 +833,138 @@ impl FramingWindow {
         );
     }
 
-    /// Push the current state into the widgets. The single place that decides
-    /// what the user sees, so the button label can never disagree with the state.
+    /// Push the current state into the widgets.
+    ///
+    /// The single writer of visual state, so the button label, the border colour
+    /// and the status line cannot disagree with the machine. Visual states are
+    /// the four in the design document: idle, recording, saved, aborted.
     fn refresh(&self) {
-        let (label, status, sensitive) = match &*self.state.borrow() {
+        for c in [
+            "state-idle",
+            "state-recording",
+            "state-stopping",
+            "state-aborted",
+        ] {
+            self.shell.remove_css_class(c);
+        }
+
+        let state = self.state.borrow().clone();
+
+        self.update_size_label();
+
+        let (class, action, status, sensitive) = match &state {
             State::Idle => (
+                "state-idle",
                 "Record",
                 "Position the frame, then Record.".to_string(),
                 true,
             ),
-            State::Arming { .. } => ("Cancel", "arming…".to_string(), true),
+            State::Arming { .. } => ("state-idle", "Cancel", "arming…".to_string(), true),
             State::Recording { request } => (
+                "state-recording",
                 "Stop",
-                format!("recording {}x{}", request.rect.w, request.rect.h),
+                format!("recording {} × {}", request.rect.w, request.rect.h),
                 true,
             ),
-            State::Stopping { .. } => ("Stop", "finishing the file…".to_string(), false),
-            State::Encoding { .. } => ("Stop", "encoding…".to_string(), false),
-            State::Completed { output } => ("Record", format!("saved {}", output.display()), true),
+            State::Stopping { .. } => (
+                "state-stopping",
+                "Stop",
+                "finishing the file…".to_string(),
+                false,
+            ),
+            State::Encoding { .. } => ("state-idle", "Stop", "encoding…".to_string(), false),
+            State::Completed { output } => (
+                "state-idle",
+                "Record",
+                format!("saved {}", display_path(output)),
+                true,
+            ),
             State::Failed { error, retryable } => {
-                let where_is_it = retryable
+                let kept = retryable
                     .as_ref()
                     .map(|v| format!(" — recording kept at {}", v.path.display()))
                     .unwrap_or_default();
-                ("Record", format!("{error}{where_is_it}"), true)
+                ("state-aborted", "Record", format!("{error}{kept}"), true)
             }
             State::Cancelled { preserved } => {
-                let where_is_it = preserved
+                let kept = preserved
                     .as_ref()
                     .map(|v| format!(" — recording kept at {}", v.path.display()))
                     .unwrap_or_default();
-                ("Record", format!("cancelled{where_is_it}"), true)
+                ("state-aborted", "Record", format!("cancelled{kept}"), true)
             }
         };
-        self.record.set_label(label);
+
+        self.shell.add_css_class(class);
+        self.record_label.set_text(action);
         self.record.set_sensitive(sensitive);
         self.status.set_text(&status);
+
+        let recording = matches!(state, State::Recording { .. });
+        self.rec_dot.set_visible(recording);
+        self.elapsed.set_visible(recording);
+        if !recording {
+            self.started.set(None);
+        }
+
+        let completed = matches!(state, State::Completed { .. });
+        self.status_dot
+            .set_visible(completed || class == "state-aborted");
+        self.reveal.set_visible(completed);
+        if let State::Completed { output } = &state {
+            *self.last_output.borrow_mut() = Some(output.clone());
+        }
+    }
+
+    /// Update the dimensions readout.
+    ///
+    /// Driven from the tick rather than only from `refresh`, because the frame is
+    /// resized by the window manager — the size changes with no state transition
+    /// to hang a redraw off, and `refresh` at construction time runs before the
+    /// window is realized, when `capture_rect` cannot answer at all.
+    fn update_size_label(&self) {
+        // While a session owns the geometry the readout must show what is being
+        // recorded, not what the window happens to measure now.
+        let rect = self
+            .frozen
+            .get()
+            .or_else(|| capture_rect(&self.window, &self.hole, &self.probe).ok());
+        if let Some(r) = rect {
+            let text = format!("{} × {}", r.w, r.h);
+            if self.size_label.text() != text {
+                self.size_label.set_text(&text);
+            }
+        }
+    }
+
+    /// Update the elapsed readout. Called from the driver, not from `refresh`,
+    /// because it changes without the state changing.
+    fn tick_elapsed(&self) {
+        if !matches!(&*self.state.borrow(), State::Recording { .. }) {
+            return;
+        }
+        let started = match self.started.get() {
+            Some(t) => t,
+            None => {
+                let now = std::time::Instant::now();
+                self.started.set(Some(now));
+                now
+            }
+        };
+        let secs = started.elapsed().as_secs();
+        self.elapsed
+            .set_text(&format!("{}:{:02}", secs / 60, secs % 60));
+    }
+}
+
+/// Shorten a path under `$HOME` to `~/…`, as the design shows it.
+fn display_path(p: &std::path::Path) -> String {
+    let text = p.display().to_string();
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() && text.starts_with(&home) => {
+            format!("~{}", &text[home.len()..])
+        }
+        _ => text,
     }
 }
 

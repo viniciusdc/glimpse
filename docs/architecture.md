@@ -119,6 +119,19 @@ encode avoids costing the user their recording.
 another project's source. That is a licensing requirement (ADR 0003), and the
 argument builder is a pure function so the flags are asserted on in tests.
 
+## The interface
+
+Built from the `Glimpse Screen Recording UI` design document, with its colour
+tokens ported verbatim into `ui.rs`'s CSS so the app and the mock cannot drift.
+
+The window is undecorated — the 44px header *is* the chrome, and it doubles as the
+drag handle ([ADR 0006](adr/0006-the-header-is-the-chrome.md)). The design's four
+visual states map onto the session machine: idle, recording (red border, pulsing
+dot, elapsed timer), saved (path plus "Show in folder"), aborted (amber, with
+where the preserved recording went).
+
+`GLIMPSE_DECORATIONS=server` restores window-manager decorations.
+
 ## Driving it
 
 `ui.rs` holds the session state and feeds every user action through
