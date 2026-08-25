@@ -6,6 +6,7 @@
 //! X11-only by design, not by omission — see
 //! [ADR 0002](../docs/adr/0002-ffmpeg-pipeline-and-session-model.md).
 
+pub mod capture;
 pub mod geometry;
 pub mod session;
 pub mod ui;

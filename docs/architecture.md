@@ -22,6 +22,7 @@ src/main.rs       The binary: application entry only
 src/x11probe.rs   Direct X queries — window origin, root size, input-shape readback
 src/geometry.rs   The widget → root-pixel conversion chain, with clipping
 src/session.rs    The recording lifecycle: pure state machine, no I/O
+src/capture.rs    The ffmpeg recorder: owns the child, reaps on every path
 src/ui.rs         The framing window: hole, input region, lock/unlock
 ```
 
@@ -98,9 +99,27 @@ knowing:
 - **Late and duplicate events are inert, not fatal.** A subprocess worker and a
   UI thread cannot be perfectly ordered.
 
+## Capture
+
+`capture.rs` performs the `StartRecorder` / `GracefulStop` / `Terminate` effects.
+`Recorder` exclusively owns the ffmpeg child and waits on it on every exit path,
+with a `Drop` backstop so a panic or early return cannot leak a process.
+
+The intermediate is **ffv1 in Matroska at `bgr0`**: x11grab emits `bgr0` natively
+and ffv1 stores it unchanged, so the pipeline is conversion-free and the
+intermediate is lossless by construction rather than by assertion.
+
+`Workspace` owns the recorded bytes. `dispose(preserve)` is the only thing that
+deletes them, and it refuses when asked to preserve — which is how a failed
+encode avoids costing the user their recording.
+
+**Every ffmpeg flag is derived from ffmpeg's own documentation**, never from
+another project's source. That is a licensing requirement (ADR 0003), and the
+argument builder is a pure function so the flags are asserted on in tests.
+
 ## What is not here yet
 
-Capture and encoding — the two workers that perform the effects above.
+Encoding, and the wiring that connects the Record button to the session machine.
 
 `lock()` snapshots the rect and disables resizing. It does **not** prevent a
 window manager from moving the window, so drift is a checked invariant

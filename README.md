@@ -64,8 +64,9 @@ and the deprecation that is *not* thereby repealed.
 The session lifecycle exists and is fully tested — a pure state machine that maps
 events to effects, so policies like "a failed encode must not cost the recording"
 and "a frame that moves mid-recording aborts" are pinned by tests that need no
-display. Capture and encoding are the workers that perform those effects, and
-they are next. Order and reasoning in [`docs/roadmap.md`](docs/roadmap.md).
+display. Capture is written: `Recorder` owns the ffmpeg child and reaps it on every exit
+path, recording to a conversion-free ffv1 intermediate. Encoding, and the wiring
+from the Record button, are next. Order and reasoning in [`docs/roadmap.md`](docs/roadmap.md).
 
 > There is no screenshot in this README, deliberately. The middle of the window is
 > transparent, so any capture of it publishes whatever happened to be behind it.
@@ -117,13 +118,16 @@ src/
   x11probe.rs           The X11 boundary — origin, root size, input-shape readback
   geometry.rs           WidgetRect → SurfaceRect → RootPixelRect, with clipping
   session.rs            The recording lifecycle: pure state machine, no I/O
+  capture.rs            The ffmpeg recorder: owns the child, reaps on every path
   ui.rs                 The framing window: hole, input region, lock/unlock
 examples/
   root_geometry.rs      Query X with no GTK window involved
   framing_window.rs     The smallest useful framing window
+  record.rs             Record a fixed region, no GTK window involved
 tests/
   geometry.rs           Clipping — the part of the chain testable without a display
   session.rs            Lifecycle policy: drift, retry, cancellation, shutdown
+  capture.rs            ffmpeg arguments and workspace ownership
 docs/
   adr/                  Decision records, append-only
   architecture.md       The stack, the modules, the conversion chain
