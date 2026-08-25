@@ -17,8 +17,41 @@ so and exits rather than misbehaving.
 ## The gates
 
 ```sh
-make check      # fmt, clippy, test — fastest-failing first
+make            # list every target
+make check      # docs-check, fmt, clippy, test — fastest-failing first
 make test       # tests only
+```
+
+## Keeping the docs honest
+
+Documentation drift is invisible to the compiler, and it was the largest category
+of finding in this project's first review — three published claims did not match
+the code. So it is mechanical now:
+
+```sh
+make docs-sync   # regenerate generated sections, report anything it cannot fix
+make docs-check  # change nothing, fail on drift (runs in make check and in CI)
+make docs        # build the API documentation with rustdoc
+```
+
+`scripts/sync-docs.sh` **generates** the ADR index in the README from each ADR's
+own heading, and **verifies** what cannot be generated without losing prose:
+
+- every path in the README layout block exists;
+- every module under `src/` appears in that block;
+- every `` `make <target>` `` mentioned in any `.md` is a real target;
+- every relative link in the docs resolves to a real file.
+
+Add an ADR and `make check` fails until the index is regenerated. Rename a module
+and it fails until the README agrees. That is the intent: the docs cannot quietly
+fall behind the code.
+
+## Installing
+
+```sh
+make install                   # ~/.local/bin + a desktop entry
+make install PREFIX=/usr/local # or anywhere
+make uninstall
 ```
 
 Builds run under `nice -n 19` with `-j 2`. The developer is usually using this

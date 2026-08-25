@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Glimpse
+GenericName=Screen Recorder
+Comment=Record a screen region as an animated GIF
+Exec=glimpse
+Terminal=false
+Categories=AudioVideo;Video;Recorder;Utility;
+Keywords=screen;record;recorder;gif;capture;screencast;
+StartupNotify=true

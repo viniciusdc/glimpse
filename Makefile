@@ -11,9 +11,14 @@
 #
 #  `make check` is the gate. "It compiles" is not the bar.
 
-CARGO := cargo
-NICE  := nice -n 19
-JOBS  := -j 2
+CARGO  := cargo
+NICE   := nice -n 19
+JOBS   := -j 2
+
+# Honour the usual GNU prefix conventions so a packager does not have to patch.
+PREFIX  ?= $(HOME)/.local
+BINDIR  ?= $(PREFIX)/bin
+DATADIR ?= $(PREFIX)/share
 
 .DEFAULT_GOAL := help
 
@@ -23,7 +28,7 @@ help: ## List the development commands
 	  | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: check
-check: fmt-check lint test ## The gates CI runs, fastest-failing first
+check: fmt-check lint test docs-check ## The gates CI runs, fastest-failing first
 
 .PHONY: build
 build: ## Debug build
@@ -55,6 +60,34 @@ selftest: ## Verify geometry against a real capture — then LOOK at the PNG
 	@echo
 	@echo "Now open /tmp/glimpse-selftest.png. Any Glimpse chrome in it means"
 	@echo "the capture rect is wrong, whatever the numbers above said."
+
+.PHONY: docs
+docs: ## Build the API documentation
+	$(NICE) $(CARGO) doc $(JOBS) --no-deps --document-private-items
+	@echo "open target/doc/glimpse/index.html"
+
+.PHONY: docs-sync
+docs-sync: ## Regenerate generated doc sections and report any drift
+	@scripts/sync-docs.sh
+
+.PHONY: docs-check
+docs-check: ## Fail if the docs have drifted from the code (runs in check + CI)
+	@scripts/sync-docs.sh --check
+
+.PHONY: install
+install: ## Install the binary and desktop entry under PREFIX (default ~/.local)
+	$(NICE) $(CARGO) build $(JOBS) --release
+	install -Dm755 target/release/glimpse $(DESTDIR)$(BINDIR)/glimpse
+	install -Dm644 data/glimpse.desktop $(DESTDIR)$(DATADIR)/applications/glimpse.desktop
+	@echo "installed to $(DESTDIR)$(BINDIR)/glimpse"
+	@case ":$$PATH:" in *":$(BINDIR):"*) ;; \
+	  *) echo "note: $(BINDIR) is not on your PATH" ;; esac
+
+.PHONY: uninstall
+uninstall: ## Remove what install put down
+	rm -f $(DESTDIR)$(BINDIR)/glimpse
+	rm -f $(DESTDIR)$(DATADIR)/applications/glimpse.desktop
+	@echo "removed"
 
 .PHONY: check-reqs
 check-reqs: ## Report missing system requirements

@@ -80,8 +80,13 @@ sudo apt install libgtk-4-dev ffmpeg
 cargo run
 ```
 
-`make check-reqs` reports what is missing. `make` on its own lists the
-development commands.
+`make check-reqs` reports what is missing, and `make` on its own lists every
+target. To install it properly:
+
+```sh
+make install                    # ~/.local/bin plus a desktop entry
+make install PREFIX=/usr/local  # or wherever
+```
 
 **Wayland is not supported, and not by omission.** Glimpse checks the GDK backend
 at startup and exits with an explanation rather than running and misbehaving.
@@ -109,6 +114,7 @@ the computed rectangle matched `xwininfo` to the pixel and was still wrong by th
 
 ## Project layout
 
+<!-- BEGIN GENERATED layout (verified by scripts/sync-docs.sh; edit descriptions freely, paths are checked) -->
 ```
 AGENTS.md               Working agreement — the failure modes already hit here
 Makefile                make check is the gate; make selftest is the one CI can't run
@@ -128,12 +134,17 @@ tests/
   geometry.rs           Clipping — the part of the chain testable without a display
   session.rs            Lifecycle policy: drift, retry, cancellation, shutdown
   capture.rs            ffmpeg arguments and workspace ownership
+data/
+  glimpse.desktop       Desktop entry, installed by `make install`
+scripts/
+  sync-docs.sh          Regenerates the ADR index; fails the build on doc drift
 docs/
   adr/                  Decision records, append-only
   architecture.md       The stack, the modules, the conversion chain
   development.md        Setting up, the gates, how to verify geometry changes
   roadmap.md            What comes next, in dependency order
 ```
+<!-- END GENERATED layout -->
 
 ## Further reading
 
@@ -143,11 +154,13 @@ docs/
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — what a pull request has to clear
 - [`AGENTS.md`](AGENTS.md) — working agreement for coding agents
 - [`docs/adr/`](docs/adr/) — decision records:
-  - [0000](docs/adr/0000-x11-framing-window-spike.md) — the X11 framing-window spike, and the two verification failures it exposed
+<!-- BEGIN GENERATED adr-index (regenerate with `make docs-sync`) -->
+  - [0000](docs/adr/0000-x11-framing-window-spike.md) — The X11 framing-window spike
   - [0001](docs/adr/0001-rust-and-gtk4.md) — Rust and GTK4, rewriting Peek
-  - [0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md) — an ffmpeg-only pipeline, and an explicit session model
+  - [0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md) — An ffmpeg-only pipeline, and an explicit session model
   - [0003](docs/adr/0003-apache-2-0.md) — Apache-2.0, and what that requires of the capture implementation
-  - [0004](docs/adr/0004-review-corrections-and-the-lifecycle-spine.md) — review corrections, and a lifecycle spine before capture
+  - [0004](docs/adr/0004-review-corrections-and-the-lifecycle-spine.md) — Review corrections, and a lifecycle spine before capture
+<!-- END GENERATED adr-index -->
 
 ## Licence
 

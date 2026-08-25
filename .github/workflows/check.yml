@@ -26,6 +26,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Documentation drift is invisible to the compiler, and was the largest
+      # category of finding in this project's first review. Cheapest gate here,
+      # so it runs first.
+      - run: make docs-check
+
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       # Only the display-independent tests can run here: the geometry chain
