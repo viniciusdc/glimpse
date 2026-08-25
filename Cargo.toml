@@ -1,0 +1,17 @@
+[package]
+name = "glimpse"
+version = "0.1.0"
+edition = "2021"
+description = "Animated GIF screen recorder with a framing window — a Rust rewrite of Peek"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+gtk4 = "0.11"
+gdk4-x11 = "0.11"
+x11rb = { version = "0.14", features = ["shape"] }
+anyhow = "1"
+
+# gifski dropped from v0.1 per D-0058 — revisit only if ffmpeg GIF quality measures poorly.
+# serde/toml return with config persistence (later than T-0368).
+
+[workspace]

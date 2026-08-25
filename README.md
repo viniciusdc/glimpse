@@ -1,0 +1,142 @@
+<div align="center">
+
+# glimpse
+
+**An animated GIF screen recorder with a framing window.**
+
+[![Check](https://github.com/viniciusdc/glimpse/actions/workflows/check.yml/badge.svg)](https://github.com/viniciusdc/glimpse/actions/workflows/check.yml)
+[![Status](https://img.shields.io/badge/status-v0.1%20%C2%B7%20framing%20window-f0883e)](docs/roadmap.md)
+[![Rust](https://img.shields.io/badge/rust-stable-000000?logo=rust&logoColor=white)](Cargo.toml)
+[![GTK](https://img.shields.io/badge/gtk-4.x-4a86cf?logo=gnome&logoColor=white)](https://gtk-rs.org)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%C2%B7%20X11-lightgrey?logo=linux&logoColor=white)](#building)
+
+</div>
+
+You place a window over the thing you want to record, and the hole in the middle
+*is* the capture region. Press record, get a GIF.
+
+This is a Rust rewrite of [Peek](https://github.com/phw/peek) — 3,768 lines of
+Vala on GTK3, whose product design was right and is kept wholesale. The rewrite
+is about the implementation, not the idea.
+
+## Why
+
+Peek works. The reasons to rewrite it are narrow and worth stating plainly rather
+than dressing up:
+
+- **A conversion chain that is typed.** Turning a widget rectangle into
+  root-screen pixels is the one calculation this product cannot get wrong, and it
+  is exactly where logical and device coordinates get mixed. Each stage here is a
+  distinct type.
+- **A verification story, written down.** Two of the first three bugs found in
+  this codebase were confidently verified as *absent* by methods that could not
+  have detected them. What replaced those methods is in
+  [ADR 0000](docs/adr/0000-x11-framing-window-spike.md) and enforced by
+  `make selftest`.
+- **A path to Wayland that is honest about being a different product.** Peek's
+  Wayland support is its weakest area. Glimpse does not pretend a compositor that
+  mediates selection can host a window that chooses its own capture rectangle —
+  see [ADR 0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md).
+
+What it does *not* claim: better GIF quality. v0.1 uses the same ffmpeg
+`palettegen`/`paletteuse` path Peek does, and says so.
+
+## Status
+
+**v0.1 — the framing window works; capture does not exist yet.**
+
+Running today: a transparent, click-through framing window whose input region is
+re-punched whenever the layout settles; `capture_rect` running the full
+conversion chain with clipping to the root window; and the `lock()`/`unlock()`
+contract that freezes the geometry so a frame cannot drift out from under a
+recorder that has not been written yet.
+
+The toolkit question is settled and it was settled by evidence, not preference.
+GTK4 removed the window-positioning APIs this product is built on, and the escape
+hatch back to raw X11 is deprecated as of GTK 4.18 **with no replacement**. Rather
+than assume, a throwaway spike answered three questions; all three passed, and
+[ADR 0000](docs/adr/0000-x11-framing-window-spike.md) records both the verdict
+and the deprecation that is *not* thereby repealed.
+
+Not yet written: capture, encoding, the session state machine, and settings. In
+dependency order in [`docs/roadmap.md`](docs/roadmap.md).
+
+> There is no screenshot in this README, deliberately. The middle of the window is
+> transparent, so any capture of it publishes whatever happened to be behind it.
+
+## Building
+
+Requires stable Rust, an **X11 session**, and GTK4 development headers.
+
+```sh
+sudo apt install libgtk-4-dev ffmpeg
+cargo run
+```
+
+`make check-reqs` reports what is missing. `make` on its own lists the
+development commands.
+
+**Wayland is not supported, and not by omission.** Under Wayland the binary
+explains itself and exits rather than running and misbehaving.
+
+`ffmpeg` is a runtime dependency, not a build one — the framing window runs
+without it, but nothing will record.
+
+## Verifying it works
+
+```sh
+make selftest
+```
+
+Reads the input shape back **from the X server** — the only sound way to confirm
+click-through — then grabs the computed rectangle to
+`/tmp/glimpse-selftest.png`. Open that image. Any part of Glimpse's own interface
+in it means the rectangle is wrong, whatever the numbers said.
+
+That last sentence is the whole lesson of this project so far: during the spike
+the computed rectangle matched `xwininfo` to the pixel and was still wrong by the
+3px width of the frame border.
+
+## Project layout
+
+```
+AGENTS.md               Working agreement — the failure modes already hit here
+Makefile                make check is the gate; make selftest is the one CI can't run
+src/
+  lib.rs                Library surface, so geometry is testable without a display
+  main.rs               The binary: application entry only
+  x11probe.rs           Direct X queries — origin, root size, input-shape readback
+  geometry.rs           WidgetRect → SurfaceRect → RootPixelRect, with clipping
+  ui.rs                 The framing window: hole, input region, lock/unlock
+examples/
+  root_geometry.rs      Query X with no GTK window involved
+  framing_window.rs     The smallest useful framing window
+tests/
+  geometry.rs           Clipping — the part testable without a display
+docs/
+  adr/                  Decision records, append-only
+  architecture.md       The stack, the modules, the conversion chain
+  development.md        Setting up, the gates, how to verify geometry changes
+  roadmap.md            What comes next, in dependency order
+```
+
+## Further reading
+
+- [`docs/architecture.md`](docs/architecture.md) — the conversion chain and why each stage is its own type
+- [`docs/development.md`](docs/development.md) — setting up, the gates, verifying geometry and click-through
+- [`docs/roadmap.md`](docs/roadmap.md) — capture, encoding, the session state machine
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — what a pull request has to clear
+- [`AGENTS.md`](AGENTS.md) — working agreement for coding agents
+- [`docs/adr/`](docs/adr/) — decision records:
+  - [0000](docs/adr/0000-x11-framing-window-spike.md) — the X11 framing-window spike, and the two verification failures it exposed
+  - [0001](docs/adr/0001-rust-and-gtk4.md) — Rust and GTK4, rewriting Peek
+  - [0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md) — an ffmpeg-only pipeline, and an explicit session model
+
+## Licence
+
+GPL-3.0-or-later — see [LICENSE](LICENSE).
+
+Peek is GPL-3. Glimpse is a rewrite informed by reading that source, so matching
+the licence is the safe answer rather than a preference. Peek is
+copyright © Philipp Wolfer; none of its code is present here.
