@@ -11,9 +11,10 @@ make check        # the gates, fastest-failing first
 ```
 
 One prerequisite fails in a way that does not look like a failure: **Glimpse
-needs an X11 session.** Under Wayland it exits with an explanation rather than
-running and misbehaving, because the framing-window model does not survive a
-compositor that mediates selection.
+needs an X11 session** — it checks the GDK backend at startup and exits with an
+explanation, because the framing-window model does not survive a compositor that
+mediates selection. Note that having `$DISPLAY` set is not enough: XWayland
+answers it under Wayland too, which is why the check is on the backend GTK chose.
 
 ## What a pull request has to clear
 

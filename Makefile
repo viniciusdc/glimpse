@@ -62,4 +62,9 @@ check-reqs: ## Report missing system requirements
 	  [ "$$XDG_SESSION_TYPE" = x11 ] && echo 'yes' \
 	  || echo "NO ($${XDG_SESSION_TYPE:-unknown}) — Glimpse is X11-only by design"
 	@printf '%-16s ' 'libgtk-4-dev:'; pkg-config --modversion gtk4 2>/dev/null || echo 'MISSING'
-	@printf '%-16s ' 'ffmpeg:'; ffmpeg -version 2>/dev/null | head -1 || echo 'MISSING (needed to record)'
+	@printf '%-16s ' 'ffmpeg:'; command -v ffmpeg >/dev/null \
+	  && ffmpeg -version 2>/dev/null | awk 'NR==1' \
+	  || echo 'MISSING (needed to record)'
+	@printf '%-16s ' 'xdotool:'; command -v xdotool >/dev/null \
+	  && echo 'yes (optional — used by the click-through check)' \
+	  || echo 'missing (optional — only needed for docs/development.md checks)'

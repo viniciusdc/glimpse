@@ -117,7 +117,7 @@ pub fn capture_rect(
     );
 
     // 4. surface origin -> root pixels
-    let xid = crate::ui::window_xid(window)?;
+    let xid = crate::x11probe::window_xid(window)?;
     let (ox, oy) = probe.surface_origin(xid)?;
 
     let rect = RootPixelRect {

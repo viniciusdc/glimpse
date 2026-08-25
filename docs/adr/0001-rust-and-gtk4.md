@@ -16,7 +16,7 @@ Rust and Go were both candidates.
 
 ## Decision
 
-**Rust, on GTK4**, licensed GPL-3.0-or-later.
+**Rust, on GTK4**, licensed GPL-3.0-or-later *(the licence half is superseded — see [ADR 0003](0003-apache-2-0.md); the toolkit half stands)*.
 
 ## Because
 

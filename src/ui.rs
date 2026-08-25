@@ -18,15 +18,14 @@
 //! compensating for it with a magic inset.
 
 use anyhow::{anyhow, Result};
-use gdk4_x11::X11Surface;
 use gtk::prelude::*;
 use gtk::{cairo, glib};
 use gtk4 as gtk;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::geometry::{capture_rect, RootPixelRect};
-use crate::x11probe::X11Probe;
+use crate::x11probe::{self, shape_covers, X11Probe};
 
 const CSS: &str = "
 window.glimpse { background: transparent; }
@@ -35,29 +34,13 @@ window.glimpse { background: transparent; }
 .glimpse-chrome { background: rgba(30,30,30,0.92); border-radius: 6px; }
 ";
 
-/// Raw X11 window id for a GTK window.
-///
-/// Uses `GdkX11Surface::xid`, which is deprecated since GTK 4.18 with no
-/// documented replacement (ADR 0001). It works on 4.14.5. This function is the
-/// single choke point so that when it breaks, exactly one place changes.
-pub fn window_xid(window: &gtk::Window) -> Result<u32> {
-    let surface = window
-        .surface()
-        .ok_or_else(|| anyhow!("window has no surface"))?;
-    let x11 = surface
-        .downcast_ref::<X11Surface>()
-        .ok_or_else(|| anyhow!("not an X11 surface — Glimpse v0.1 is X11-only (ADR 0002)"))?;
-    Ok(x11.xid() as u32)
-}
-
 pub struct FramingWindow {
     pub window: gtk::ApplicationWindow,
     hole: gtk::Box,
     probe: Rc<X11Probe>,
-    /// Set while arming/recording. The rect must not move under the recorder.
-    locked: Rc<Cell<bool>>,
-    /// The rect snapshotted when locking, per D-0058.
-    frozen: Rc<RefCell<Option<RootPixelRect>>>,
+    /// The rect snapshotted when locking, per ADR 0002. `Some` means a session
+    /// owns the geometry.
+    frozen: Cell<Option<RootPixelRect>>,
 }
 
 impl FramingWindow {
@@ -125,8 +108,7 @@ impl FramingWindow {
             window: window.clone(),
             hole: hole.clone(),
             probe: probe.clone(),
-            locked: Rc::new(Cell::new(false)),
-            frozen: Rc::new(RefCell::new(None)),
+            frozen: Cell::new(None),
         };
 
         me.install_input_region_updater();
@@ -169,55 +151,118 @@ impl FramingWindow {
             return Err(anyhow!("frame is off-screen: {}x{}", rect.w, rect.h));
         }
         self.window.set_resizable(false);
-        self.locked.set(true);
-        *self.frozen.borrow_mut() = Some(rect);
+        self.frozen.set(Some(rect));
         Ok(rect)
     }
 
     pub fn unlock(&self) {
-        self.locked.set(false);
-        *self.frozen.borrow_mut() = None;
+        self.frozen.set(None);
         self.window.set_resizable(true);
     }
 
     pub fn frozen_rect(&self) -> Option<RootPixelRect> {
-        *self.frozen.borrow()
+        self.frozen.get()
     }
 
-    /// Re-punch the input hole whenever the layout settles.
+    /// Has the frame moved since it was locked?
     ///
-    /// `connect_map` is too early — the window has no allocation yet, which is
-    /// how the spike first "failed" Q2 (ADR 0000). A tick callback reacting to bounds
-    /// changes is also what correctness demands, since the hole moves on resize.
+    /// `lock()` disables resizing, but **a window manager can still move the
+    /// window** — alt-drag, a workspace change, a tiling rule. `x11grab` records a
+    /// fixed root rectangle, so an undetected move means the visible frame and the
+    /// recording diverge while the output still looks plausible. Enforcement is a
+    /// checked invariant, not an assumption about what GTK can prevent.
+    pub fn geometry_drifted(&self) -> Option<(RootPixelRect, RootPixelRect)> {
+        let frozen = self.frozen.get()?;
+        let now = capture_rect(&self.window, &self.hole, &self.probe).ok()?;
+        (now != frozen).then_some((frozen, now))
+    }
+
+    /// Re-punch the input hole whenever the surface is laid out.
+    ///
+    /// Driven by the surface's `layout` signal rather than a tick callback. A tick
+    /// callback fires at the monitor refresh rate for the life of the window — on
+    /// a 165Hz display that is a permanent wakeup source for an app that is idle
+    /// almost all of the time. `layout` fires when the geometry actually changes,
+    /// which is the only moment the region needs recomputing.
+    ///
+    /// `connect_map` would be too early to *punch* — no allocation yet, which is
+    /// how the spike first "failed" Q2 (ADR 0000) — so the first punch happens
+    /// here on realize, after which `layout` keeps it current.
     fn install_input_region_updater(&self) {
         let hole = self.hole.clone();
-        let last: Cell<(i32, i32, i32, i32)> = Cell::new((0, 0, 0, 0));
-        self.window.add_tick_callback(move |win, _| {
-            if let Some(b) = hole.compute_bounds(win) {
-                let cur = (
-                    b.x() as i32,
-                    b.y() as i32,
-                    b.width() as i32,
-                    b.height() as i32,
-                );
-                if cur != last.get() && cur.2 > 0 && cur.3 > 0 {
-                    last.set(cur);
-                    if let Err(e) = punch_input_hole(win.upcast_ref(), cur) {
-                        eprintln!("glimpse: input region not applied: {e:#}");
-                    }
-                }
-            }
-            glib::ControlFlow::Continue
+        self.window.connect_realize(move |win| {
+            let Some(surface) = win.surface() else {
+                eprintln!("glimpse: realized with no surface; click-through disabled");
+                return;
+            };
+            let last = Rc::new(Cell::new((0, 0, 0, 0)));
+            sync_input_region(win, &hole, &last);
+
+            let (hole, win, last) = (hole.clone(), win.clone(), last.clone());
+            surface.connect_layout(move |_, _, _| sync_input_region(&win, &hole, &last));
         });
     }
 }
 
+/// Recompute the hole and re-punch, skipping the server round trip when nothing
+/// moved.
+fn sync_input_region(
+    win: &gtk::ApplicationWindow,
+    hole: &gtk::Box,
+    last: &Cell<(i32, i32, i32, i32)>,
+) {
+    let Some(b) = hole.compute_bounds(win) else {
+        return;
+    };
+    let cur = (
+        b.x() as i32,
+        b.y() as i32,
+        b.width() as i32,
+        b.height() as i32,
+    );
+    if cur == last.get() || cur.2 <= 0 || cur.3 <= 0 {
+        return;
+    }
+    last.set(cur);
+    if let Err(e) = punch_input_hole(win.upcast_ref(), cur) {
+        eprintln!("glimpse: input region not applied: {e:#}");
+    }
+}
+
+/// Input region = the whole window minus the hole, so clicks in the middle reach
+/// whatever is underneath.
+fn punch_input_hole(window: &gtk::Window, hole: (i32, i32, i32, i32)) -> Result<()> {
+    let surface = window.surface().ok_or_else(|| anyhow!("no surface"))?;
+    if !surface.display().supports_input_shapes() {
+        return Err(anyhow!("display does not support input shapes"));
+    }
+
+    // The input region is in SURFACE coordinates, and `hole` arrives in widget
+    // coordinates. `capture_rect` applies this same transform; if only one of the
+    // two applies it, the punched hole drifts from the visible one by the client-
+    // side-decoration margin. Rounding matches `geometry.rs` for the same reason.
+    let (tx, ty) = window.surface_transform();
+    let hx = (hole.0 as f64 + tx).round() as i32;
+    let hy = (hole.1 as f64 + ty).round() as i32;
+
+    let (w, h) = (surface.width(), surface.height());
+    if w <= 0 || h <= 0 {
+        return Err(anyhow!("surface not sized yet"));
+    }
+
+    let region = cairo::Region::create_rectangle(&cairo::RectangleInt::new(0, 0, w, h));
+    region.subtract_rectangle(&cairo::RectangleInt::new(hx, hy, hole.2, hole.3))?;
+    surface.set_input_region(Some(&region));
+    Ok(())
+}
+
 impl FramingWindow {
-    /// `GLIMPSE_SELFTEST=1` runs the two checks the spike (ADR 0000) proved are the
-    /// only ones that catch real geometry bugs, then exits:
+    /// `GLIMPSE_SELFTEST=1` runs the two checks the spike (ADR 0000) proved are
+    /// the only ones that catch real geometry bugs, then exits:
     ///
-    ///   1. read the input shape back **from the X server** — pointer-position
-    ///      tests are blind to it;
+    ///   1. read the input shape back **from the X server** and check what it
+    ///      means — pointer-position tests are blind to input shape, and merely
+    ///      counting bands cannot tell a correct hole from a misplaced one;
     ///   2. grab the computed rect and write a PNG — arithmetic that agrees with
     ///      `xwininfo` can still be wrong, and only the image shows it.
     fn install_selftest(&self, status: &gtk::Label) {
@@ -230,8 +275,7 @@ impl FramingWindow {
         let status = status.clone();
         glib::timeout_add_seconds_local_once(3, move || {
             status.set_text("self-test running");
-            let report = run_selftest(&window, &hole, &probe);
-            println!("{report}");
+            println!("{}", run_selftest(&window, &hole, &probe));
             if let Some(a) = window.application() {
                 a.quit();
             }
@@ -244,22 +288,37 @@ fn run_selftest(window: &gtk::ApplicationWindow, hole: &gtk::Box, probe: &X11Pro
         Ok(r) => r,
         Err(e) => return format!("SELFTEST FAILED: geometry: {e:#}"),
     };
-    let xid = match window_xid(window.upcast_ref()) {
+    let xid = match x11probe::window_xid(window.upcast_ref()) {
         Ok(x) => x,
         Err(e) => return format!("SELFTEST FAILED: xid: {e:#}"),
     };
 
-    let shape = match probe.input_shape(xid) {
-        Ok(rs) if rs.is_empty() => "no input shape set — click-through is NOT active".to_string(),
-        Ok(rs) => format!(
-            "{} band(s): {}",
-            rs.len(),
-            rs.iter()
+    // Counting bands proves nothing: a window with no shape set can still report
+    // a band covering everything, and a misplaced hole reports bands too. Check
+    // the semantics — the hole must NOT take clicks, the border MUST.
+    let shape = match (probe.input_shape(xid), hole.compute_bounds(window)) {
+        (Ok(bands), Some(b)) => {
+            let (hx, hy) = (b.x() as i32, b.y() as i32);
+            let (hw, hh) = (b.width() as i32, b.height() as i32);
+            let centre = shape_covers(&bands, hx + hw / 2, hy + hh / 2);
+            let border = shape_covers(&bands, hx + hw / 2, hy - 2);
+            let listed = bands
+                .iter()
                 .map(|(x, y, w, h)| format!("{w}x{h}+{x}+{y}"))
                 .collect::<Vec<_>>()
-                .join(" ")
-        ),
-        Err(e) => format!("shape query failed: {e}"),
+                .join(" ");
+            let verdict = match (centre, border) {
+                (false, true) => "PASS — hole is click-through, border takes clicks",
+                (true, _) => "FAIL — the hole still takes clicks; region misplaced or absent",
+                (false, false) => "FAIL — the border takes no clicks either; region too large",
+            };
+            format!(
+                "{verdict}\n                 {} band(s): {listed}",
+                bands.len()
+            )
+        }
+        (Err(e), _) => format!("shape query failed: {e}"),
+        (_, None) => "could not compute hole bounds".to_string(),
     };
 
     let xwin = crate::geometry::verify_against_xwininfo(xid)
@@ -284,8 +343,7 @@ fn run_selftest(window: &gtk::ApplicationWindow, hole: &gtk::Box, probe: &X11Pro
         .output();
     let grab = match grab {
         Ok(o) if o.status.success() => format!(
-            "wrote {out} — INSPECT IT: any Glimpse chrome \
-             (frame border, toolbar) in the image means the rect is wrong"
+            "wrote {out} — INSPECT IT: any Glimpse chrome in the image means the rect is wrong"
         ),
         Ok(o) => format!(
             "FAILED: {}",
@@ -306,22 +364,4 @@ fn run_selftest(window: &gtk::ApplicationWindow, hole: &gtk::Box, probe: &X11Pro
          grab         : {grab}\n",
         rect.w, rect.h, rect.x, rect.y
     )
-}
-
-/// Input region = the whole window minus the hole, so clicks in the middle reach
-/// whatever is underneath.
-fn punch_input_hole(window: &gtk::Window, hole: (i32, i32, i32, i32)) -> Result<()> {
-    let surface = window.surface().ok_or_else(|| anyhow!("no surface"))?;
-    if !surface.display().supports_input_shapes() {
-        return Err(anyhow!("display does not support input shapes"));
-    }
-    let (w, h) = (window.width(), window.height());
-    if w <= 0 || h <= 0 {
-        return Err(anyhow!("window not sized yet"));
-    }
-
-    let region = cairo::Region::create_rectangle(&cairo::RectangleInt::new(0, 0, w, h));
-    region.subtract_rectangle(&cairo::RectangleInt::new(hole.0, hole.1, hole.2, hole.3))?;
-    surface.set_input_region(Some(&region));
-    Ok(())
 }

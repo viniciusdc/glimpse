@@ -69,6 +69,10 @@ inspection. Any Glimpse chrome visible in that image means the rect is wrong.
 
 ## What is not here yet
 
-Capture and encoding. The `lock()`/`unlock()` contract that guards them already
-exists — it snapshots the rect and freezes the window, so the frame cannot drift
-out from under a running recorder. See [`roadmap.md`](roadmap.md).
+Capture, encoding, and the session lifecycle that owns them — in that reversed
+order, per [ADR 0004](adr/0004-review-corrections-and-the-lifecycle-spine.md).
+
+`lock()` snapshots the rect and disables resizing. It does **not** prevent a
+window manager from moving the window, so drift is a checked invariant
+(`geometry_drifted()`) rather than something GTK is trusted to prevent. See
+[`roadmap.md`](roadmap.md).

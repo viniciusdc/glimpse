@@ -49,9 +49,10 @@ What it does *not* claim: better GIF quality. v0.1 uses the same ffmpeg
 
 Running today: a transparent, click-through framing window whose input region is
 re-punched whenever the layout settles; `capture_rect` running the full
-conversion chain with clipping to the root window; and the `lock()`/`unlock()`
-contract that freezes the geometry so a frame cannot drift out from under a
-recorder that has not been written yet.
+conversion chain with clipping to the root window; and a `lock()`/`unlock()`
+contract that snapshots the rect and disables resizing. Note the precise claim:
+`lock()` does **not** stop a window manager from *moving* the frame, so movement
+is detected by `geometry_drifted()` rather than assumed away.
 
 The toolkit question is settled and it was settled by evidence, not preference.
 GTK4 removed the window-positioning APIs this product is built on, and the escape
@@ -78,8 +79,11 @@ cargo run
 `make check-reqs` reports what is missing. `make` on its own lists the
 development commands.
 
-**Wayland is not supported, and not by omission.** Under Wayland the binary
-explains itself and exits rather than running and misbehaving.
+**Wayland is not supported, and not by omission.** Glimpse checks the GDK backend
+at startup and exits with an explanation rather than running and misbehaving.
+Connecting to an X server is not sufficient evidence — under Wayland, XWayland
+usually answers on `$DISPLAY` while GTK selects its own backend, so the check is
+on the backend GTK actually chose.
 
 `ffmpeg` is a runtime dependency, not a build one — the framing window runs
 without it, but nothing will record.
@@ -134,6 +138,7 @@ docs/
   - [0001](docs/adr/0001-rust-and-gtk4.md) — Rust and GTK4, rewriting Peek
   - [0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md) — an ffmpeg-only pipeline, and an explicit session model
   - [0003](docs/adr/0003-apache-2-0.md) — Apache-2.0, and what that requires of the capture implementation
+  - [0004](docs/adr/0004-review-corrections-and-the-lifecycle-spine.md) — review corrections, and a lifecycle spine before capture
 
 ## Licence
 

@@ -24,7 +24,7 @@ fn main() -> Result<()> {
     app.connect_activate(move |app| {
         let framing = FramingWindow::new(app, probe.clone());
         framing.window.present();
-        std::mem::forget(framing);
+        std::mem::forget(framing); // example only: the app owns nothing else
     });
 
     app.run();
