@@ -23,6 +23,7 @@ src/x11probe.rs   Direct X queries — window origin, root size, input-shape rea
 src/geometry.rs   The widget → root-pixel conversion chain, with clipping
 src/session.rs    The recording lifecycle: pure state machine, no I/O
 src/capture.rs    The ffmpeg recorder: owns the child, reaps on every path
+src/worker.rs     Runs the recorder off the UI thread; dropping it reaps
 src/ui.rs         The framing window: hole, input region, lock/unlock
 ```
 
@@ -117,9 +118,24 @@ encode avoids costing the user their recording.
 another project's source. That is a licensing requirement (ADR 0003), and the
 argument builder is a pure function so the flags are asserted on in tests.
 
+## Driving it
+
+`ui.rs` holds the session state and feeds every user action through
+`session::transition`, so the policies live in the tested pure module rather than
+scattered across callbacks. A 100ms driver polls the worker for results and, while
+recording, calls `geometry_drifted()` — the checked invariant from ADR 0004. A
+frame that moves mid-recording aborts, because `x11grab` records a fixed rectangle
+and everything after the move would be the wrong region in a file that still looks
+plausible.
+
+`refresh()` is the only thing that writes to the widgets, so the button label
+cannot disagree with the state.
+
 ## What is not here yet
 
-Encoding, and the wiring that connects the Record button to the session machine.
+GIF encoding. Until it exists the session deliberately takes the *failure* path
+with the source preserved — the same path a real encoder failure takes — rather
+than pretending to succeed. That also exercises the retryable artifact for real.
 
 `lock()` snapshots the rect and disables resizing. It does **not** prevent a
 window manager from moving the window, so drift is a checked invariant

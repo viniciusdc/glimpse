@@ -51,11 +51,21 @@ Every flag is derived from `ffmpeg -h demuxer=x11grab` and
 ([ADR 0003](adr/0003-apache-2-0.md)). The region uses the documented
 `-grab_x`/`-grab_y` options rather than encoding the origin into the input URL.
 
-## Next — wiring capture to the session machine and the UI
+## Done — the Record button, wired through the machine
 
-The Record button drives `Idle → Arming → Recording`, a worker thread owns the
-`Recorder` so the UI thread never blocks, and `geometry_drifted()` is polled while
-recording so a moved frame aborts rather than producing a plausible wrong file.
+Every user action goes through `session::transition`, so the policies stay in the
+tested pure module instead of spreading into callbacks. `src/worker.rs` owns the
+`Recorder` on its own thread — dropping the worker joins that thread, which
+guarantees the child is killed and reaped before shutdown proceeds. A 100ms driver
+polls for results and, while recording, calls `geometry_drifted()`: a frame that
+moves aborts the recording rather than silently capturing the wrong region.
+
+`refresh()` is the only writer of widget state, so the button label cannot
+disagree with the machine.
+
+Verified end to end with `GLIMPSE_SELFTEST=record`: Record → Recording at the
+framing window's exact rect → Stop → a valid finalised ffv1 file, no orphaned
+ffmpeg and no zombies.
 
 ## Then — encoding, as the next slice
 

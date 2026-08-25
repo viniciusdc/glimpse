@@ -42,9 +42,9 @@ fn main() -> glib::ExitCode {
             }
         };
 
-        let window = Rc::new(ui::FramingWindow::new(app, probe));
-        window.window.present();
-        *framing_c.borrow_mut() = Some(window);
+        let framing_window = ui::FramingWindow::new(app, probe);
+        framing_window.window.present();
+        *framing_c.borrow_mut() = Some(framing_window);
     });
 
     let code = app.run();

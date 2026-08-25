@@ -98,6 +98,19 @@ in the page underneath. When the picture looks wrong, *establish* what it is.
 
 **The PNG is a picture of your screen.** Never attach it to a pull request.
 
+## Verifying the recording path
+
+```sh
+GLIMPSE_SELFTEST=record cargo run
+```
+
+Drives a real Record → Stop cycle through the same code path the button uses,
+then prints the final state and the recorded file. Until GIF encoding exists the
+run ends in `Failed { retryable: Some(..) }` **on purpose** — the session takes
+the same path a real encoder failure would, so the preserved-artifact policy is
+exercised for real rather than only in tests. The recording is left on disk; it
+tells you where.
+
 ## Verifying click-through
 
 Read the input shape back from the X server:

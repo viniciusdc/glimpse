@@ -64,9 +64,9 @@ and the deprecation that is *not* thereby repealed.
 The session lifecycle exists and is fully tested — a pure state machine that maps
 events to effects, so policies like "a failed encode must not cost the recording"
 and "a frame that moves mid-recording aborts" are pinned by tests that need no
-display. Capture is written: `Recorder` owns the ffmpeg child and reaps it on every exit
-path, recording to a conversion-free ffv1 intermediate. Encoding, and the wiring
-from the Record button, are next. Order and reasoning in [`docs/roadmap.md`](docs/roadmap.md).
+display. The Record button works: it drives the machine, records off the UI thread, and
+aborts if the frame moves mid-recording. What is missing is the last step — GIF
+encoding — so a recording currently ends preserved on disk rather than converted. Order and reasoning in [`docs/roadmap.md`](docs/roadmap.md).
 
 > There is no screenshot in this README, deliberately. The middle of the window is
 > transparent, so any capture of it publishes whatever happened to be behind it.
@@ -125,6 +125,7 @@ src/
   geometry.rs           WidgetRect → SurfaceRect → RootPixelRect, with clipping
   session.rs            The recording lifecycle: pure state machine, no I/O
   capture.rs            The ffmpeg recorder: owns the child, reaps on every path
+  worker.rs             Runs the recorder off the UI thread; dropping it reaps
   ui.rs                 The framing window: hole, input region, lock/unlock
 examples/
   root_geometry.rs      Query X with no GTK window involved

@@ -10,4 +10,5 @@ pub mod capture;
 pub mod geometry;
 pub mod session;
 pub mod ui;
+pub mod worker;
 pub mod x11probe;
