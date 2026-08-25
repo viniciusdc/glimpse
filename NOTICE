@@ -1,0 +1,15 @@
+Glimpse
+Copyright 2026 Vinicius Cerutti
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+Glimpse contains no source from Peek (https://github.com/phw/peek), which is
+Copyright Philipp Wolfer and licensed under the GPL-3.0-or-later. Peek is prior
+art and an acknowledged influence on the product design — a framing window whose
+inner rectangle is the capture region — but no Peek code, resource, or asset is
+present here. Glimpse is written in Rust against GTK4 and x11rb, where Peek is
+written in Vala against GTK3; the implementations share no expression.
+
+Where Glimpse invokes ffmpeg, the command-line arguments are derived from
+ffmpeg's own documentation (https://ffmpeg.org/ffmpeg-devices.html and
+https://ffmpeg.org/ffmpeg-filters.html), not transcribed from another project.

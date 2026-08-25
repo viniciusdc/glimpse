@@ -2,8 +2,8 @@
 name = "glimpse"
 version = "0.1.0"
 edition = "2021"
-description = "Animated GIF screen recorder with a framing window — a Rust rewrite of Peek"
-license = "GPL-3.0-or-later"
+description = "Animated GIF screen recorder with a framing window. Rust, GTK4, X11."
+license = "Apache-2.0"
 
 [dependencies]
 gtk4 = "0.11"

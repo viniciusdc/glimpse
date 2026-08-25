@@ -8,7 +8,7 @@
 [![Status](https://img.shields.io/badge/status-v0.1%20%C2%B7%20framing%20window-f0883e)](docs/roadmap.md)
 [![Rust](https://img.shields.io/badge/rust-stable-000000?logo=rust&logoColor=white)](Cargo.toml)
 [![GTK](https://img.shields.io/badge/gtk-4.x-4a86cf?logo=gnome&logoColor=white)](https://gtk-rs.org)
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%C2%B7%20X11-lightgrey?logo=linux&logoColor=white)](#building)
 
 </div>
@@ -16,9 +16,10 @@
 You place a window over the thing you want to record, and the hole in the middle
 *is* the capture region. Press record, get a GIF.
 
-This is a Rust rewrite of [Peek](https://github.com/phw/peek) — 3,768 lines of
-Vala on GTK3, whose product design was right and is kept wholesale. The rewrite
-is about the implementation, not the idea.
+The idea is not new: [Peek](https://github.com/phw/peek) established it, and
+Glimpse keeps its product design wholesale because that design is right. What
+Glimpse does not keep is any of Peek's code — this is an independent
+implementation in Rust on GTK4, where Peek is Vala on GTK3.
 
 ## Why
 
@@ -132,11 +133,13 @@ docs/
   - [0000](docs/adr/0000-x11-framing-window-spike.md) — the X11 framing-window spike, and the two verification failures it exposed
   - [0001](docs/adr/0001-rust-and-gtk4.md) — Rust and GTK4, rewriting Peek
   - [0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md) — an ffmpeg-only pipeline, and an explicit session model
+  - [0003](docs/adr/0003-apache-2-0.md) — Apache-2.0, and what that requires of the capture implementation
 
 ## Licence
 
-GPL-3.0-or-later — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-Peek is GPL-3. Glimpse is a rewrite informed by reading that source, so matching
-the licence is the safe answer rather than a preference. Peek is
-copyright © Philipp Wolfer; none of its code is present here.
+Peek is GPL-3.0-or-later and remains so; it is prior art and an acknowledged
+influence on the product design, and none of its code, resources or assets are
+present here. See [ADR 0003](docs/adr/0003-apache-2-0.md) for the reasoning and
+for the constraint it places on future work.

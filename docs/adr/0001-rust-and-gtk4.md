@@ -3,6 +3,7 @@
 - **Status:** ACCEPTED
 - **Date:** 2026-08-25
 - **Brain:** mirrors `D-0057`
+- **Superseded in part by:** [ADR 0003](0003-apache-2-0.md) — the licence is now Apache-2.0
 
 ## Context
 
