@@ -64,9 +64,11 @@ and the deprecation that is *not* thereby repealed.
 The session lifecycle exists and is fully tested — a pure state machine that maps
 events to effects, so policies like "a failed encode must not cost the recording"
 and "a frame that moves mid-recording aborts" are pinned by tests that need no
-display. The Record button works: it drives the machine, records off the UI thread, and
-aborts if the frame moves mid-recording. What is missing is the last step — GIF
-encoding — so a recording currently ends preserved on disk rather than converted. Order and reasoning in [`docs/roadmap.md`](docs/roadmap.md).
+display. **Record → GIF works end to end.** The button drives the machine, recording and
+encoding both run off the UI thread, a frame that moves mid-recording aborts, and
+the finished GIF is committed with an atomic same-filesystem rename. What is
+missing is the application furniture: choosing where output goes, persisted
+settings, and an elapsed-time indicator. Order and reasoning in [`docs/roadmap.md`](docs/roadmap.md).
 
 > There is no screenshot in this README, deliberately. The middle of the window is
 > transparent, so any capture of it publishes whatever happened to be behind it.
@@ -126,6 +128,7 @@ src/
   session.rs            The recording lifecycle: pure state machine, no I/O
   capture.rs            The ffmpeg recorder: owns the child, reaps on every path
   worker.rs             Runs the recorder off the UI thread; dropping it reaps
+  encode.rs             GIF encoding: two-pass palette, atomic commit
   ui.rs                 The framing window: hole, input region, lock/unlock
 examples/
   root_geometry.rs      Query X with no GTK window involved
@@ -135,6 +138,7 @@ tests/
   geometry.rs           Clipping — the part of the chain testable without a display
   session.rs            Lifecycle policy: drift, retry, cancellation, shutdown
   capture.rs            ffmpeg arguments and workspace ownership
+  encode.rs             Collision policy, argument shape, a real end-to-end encode
 data/
   glimpse.desktop       Desktop entry, installed by `make install`
 scripts/
@@ -161,6 +165,7 @@ docs/
   - [0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md) — An ffmpeg-only pipeline, and an explicit session model
   - [0003](docs/adr/0003-apache-2-0.md) — Apache-2.0, and what that requires of the capture implementation
   - [0004](docs/adr/0004-review-corrections-and-the-lifecycle-spine.md) — Review corrections, and a lifecycle spine before capture
+  - [0005](docs/adr/0005-gif-encoding-and-the-atomic-commit.md) — GIF encoding, and how the output is committed
 <!-- END GENERATED adr-index -->
 
 ## Licence

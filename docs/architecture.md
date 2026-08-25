@@ -24,6 +24,7 @@ src/geometry.rs   The widget → root-pixel conversion chain, with clipping
 src/session.rs    The recording lifecycle: pure state machine, no I/O
 src/capture.rs    The ffmpeg recorder: owns the child, reaps on every path
 src/worker.rs     Runs the recorder off the UI thread; dropping it reaps
+src/encode.rs     GIF encoding: two-pass palette, atomic commit
 src/ui.rs         The framing window: hole, input region, lock/unlock
 ```
 
@@ -131,11 +132,22 @@ plausible.
 `refresh()` is the only thing that writes to the widgets, so the button label
 cannot disagree with the state.
 
+## Encoding and the commit
+
+`encode.rs` runs `palettegen` then `paletteuse` with ffmpeg's **default** filter
+options — the screencast tweaks folklore recommends were measured and earned
+nothing, so they are absent and a test keeps them absent
+([ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md)).
+
+The GIF is staged in the **destination's own directory** and renamed onto the
+final path. Staging in the session temp directory would put the rename across
+filesystems, where it degrades to a copy and stops being atomic. A taken
+destination is disambiguated rather than replaced or refused.
+
 ## What is not here yet
 
-GIF encoding. Until it exists the session deliberately takes the *failure* path
-with the source preserved — the same path a real encoder failure takes — rather
-than pretending to succeed. That also exercises the retryable artifact for real.
+Output selection and persisted settings. Also: an encode in progress cannot be
+cancelled, and a process killed mid-encode leaves a hidden `.part` file behind.
 
 `lock()` snapshots the rect and disables resizing. It does **not** prevent a
 window manager from moving the window, so drift is a checked invariant

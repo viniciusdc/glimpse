@@ -67,20 +67,26 @@ Verified end to end with `GLIMPSE_SELFTEST=record`: Record → Recording at the
 framing window's exact rect → Stop → a valid finalised ffv1 file, no orphaned
 ffmpeg and no zombies.
 
-## Then — encoding, as the next slice
+## Done — encoding
 
-`palettegen` → `paletteuse` to GIF. Staged **in the destination directory** so the
-rename is not cross-filesystem, and committed atomically only after ffmpeg exits
-successfully; the source recording is preserved on failure so a retry is possible.
+`src/encode.rs`. `palettegen` → `paletteuse`, with the **default** filter options
+because the recommended screencast tweaks were measured and earned nothing
+([ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md)). Staged in the
+destination's own directory so the rename is same-filesystem and genuinely
+atomic, and committed only after ffmpeg exits successfully. A taken destination is
+disambiguated (`glimpse-1.gif`) rather than replaced or refused.
 
-Destination collision policy — fail, unique name, or explicit replace — is decided
-here rather than in the settings milestone, because it governs the commit step.
+Record → GIF works end to end.
 
-## Then — the things that make it an application
+## Next — the things that make it an application
 
-Output-path selection and collision behaviour; framerate, downsample and
-capture-mouse settings persisted to `~/.config/glimpse`; an elapsed-time
-indicator.
+Output-path selection (collision behaviour is already decided); framerate,
+downsample and capture-mouse settings persisted to `~/.config/glimpse`; an
+elapsed-time indicator while recording.
+
+Also outstanding, from [ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md):
+**an encode in progress cannot be cancelled**, and a process killed mid-encode
+leaves a hidden `.part` file and palette in the destination directory.
 
 ## Deliberately not planned for v0.1
 

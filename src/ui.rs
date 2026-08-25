@@ -22,12 +22,13 @@ use gtk::prelude::*;
 use gtk::{cairo, glib};
 use gtk4 as gtk;
 use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::capture::{RecorderConfig, Workspace};
 use crate::geometry::{capture_rect, RootPixelRect};
 use crate::session::{transition, CaptureRequest, Effect, Event, State};
-use crate::worker::{RecordingWorker, WorkerEvent};
+use crate::worker::{EncodeEvent, EncodingWorker, RecordingWorker, WorkerEvent};
 use crate::x11probe::{self, shape_covers, X11Probe};
 
 const CSS: &str = "
@@ -49,6 +50,15 @@ pub struct FramingWindow {
     state: RefCell<State>,
     /// Owns the ffmpeg child while a recording is live. Dropping it reaps.
     worker: RefCell<Option<RecordingWorker>>,
+    /// Owns the encode while one is running.
+    encoder: RefCell<Option<EncodingWorker>>,
+    /// The current session's workspace.
+    ///
+    /// Tracked here rather than read back out of the state, because on the happy
+    /// path the state is `Completed` by the time cleanup runs and `Completed`
+    /// carries no `CapturedVideo` — so looking it up there silently leaked the
+    /// recording directory on every successful encode.
+    workspace: RefCell<Option<PathBuf>>,
     status: gtk::Label,
     record: gtk::Button,
 }
@@ -121,6 +131,8 @@ impl FramingWindow {
             frozen: Cell::new(None),
             state: RefCell::new(State::Idle),
             worker: RefCell::new(None),
+            encoder: RefCell::new(None),
+            workspace: RefCell::new(None),
             status: status.clone(),
             record: record.clone(),
         });
@@ -501,6 +513,7 @@ impl FramingWindow {
                     framerate: request.framerate,
                     capture_mouse: request.capture_mouse,
                 };
+                *self.workspace.borrow_mut() = Some(workspace.root().to_path_buf());
                 *self.worker.borrow_mut() = Some(RecordingWorker::start(config, workspace));
                 None
             }
@@ -519,27 +532,29 @@ impl FramingWindow {
                 None
             }
 
-            // Encoding is the next milestone. Rather than pretend, the session is
-            // failed with the source preserved — which is the same path a real
-            // encoder failure takes, so the retryable artifact is exercised for
-            // real instead of only in tests.
-            Effect::StartEncoder { source, .. } => {
-                self.status.set_text(&format!(
-                    "recorded to {} — GIF encoding is the next milestone",
-                    source.path.display()
-                ));
-                Some(Event::EncoderFailed(
-                    "GIF encoding is not implemented yet".into(),
-                ))
+            Effect::StartEncoder {
+                source,
+                destination,
+            } => {
+                // The recording is finished and its child is gone; release the
+                // recorder so its workspace is not held open during the encode.
+                self.worker.borrow_mut().take();
+                *self.encoder.borrow_mut() =
+                    Some(EncodingWorker::start(source.path.clone(), destination));
+                None
             }
 
             Effect::Cleanup { preserve_source } => {
                 // Dropping the worker joins its thread, which guarantees the
                 // child is dead and reaped before anything else happens.
                 self.worker.borrow_mut().take();
+                self.encoder.borrow_mut().take();
+                let workspace = self.workspace.borrow_mut().take();
                 if !preserve_source {
-                    if let Some(v) = self.state.borrow().retryable() {
-                        let _ = std::fs::remove_dir_all(&v.workspace);
+                    if let Some(root) = workspace {
+                        if let Err(e) = std::fs::remove_dir_all(&root) {
+                            eprintln!("glimpse: could not remove {}: {e}", root.display());
+                        }
                     }
                 }
                 self.unlock();
@@ -567,6 +582,14 @@ impl FramingWindow {
                         WorkerEvent::Finished(v) => me.dispatch(Event::RecorderFinished(v)),
                         WorkerEvent::Failed(msg) => me.dispatch(Event::RecorderFailed(msg)),
                         WorkerEvent::Aborted => me.refresh(),
+                    }
+                }
+
+                let encoded = me.encoder.borrow().as_ref().and_then(|w| w.poll());
+                if let Some(e) = encoded {
+                    match e {
+                        EncodeEvent::Finished(path) => me.dispatch(Event::EncoderFinished(path)),
+                        EncodeEvent::Failed(msg) => me.dispatch(Event::EncoderFailed(msg)),
                     }
                 }
 

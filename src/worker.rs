@@ -13,6 +13,8 @@
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::JoinHandle;
 
+use std::path::PathBuf;
+
 use crate::capture::{Recorder, RecorderConfig, Workspace};
 use crate::session::CapturedVideo;
 
@@ -113,6 +115,64 @@ impl Drop for RecordingWorker {
     /// application shutdown cannot outrun the process it is responsible for.
     fn drop(&mut self) {
         self.stop_tx.take();
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+/// What the encoding worker reports. One of these arrives per encode.
+#[derive(Debug)]
+pub enum EncodeEvent {
+    Finished(PathBuf),
+    Failed(String),
+}
+
+/// Runs a GIF encode off the UI thread.
+///
+/// Encoding routinely outlasts the recording it came from, so doing it on the
+/// main loop would freeze the window for seconds.
+///
+/// **Known limitation:** an encode in progress cannot be killed. `encode_gif`
+/// waits on ffmpeg, so dropping this worker joins and therefore *waits* for the
+/// encode to finish rather than aborting it. ADR 0002 asks for cancellation to be
+/// defined separately for capture and encoding; capture has it, encoding does
+/// not yet. If the process is killed mid-encode, the staged `.part` file and the
+/// palette are left in the destination directory — they are hidden and prefixed
+/// `.glimpse-`, but they are litter.
+pub struct EncodingWorker {
+    events: Receiver<EncodeEvent>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl EncodingWorker {
+    pub fn start(source: PathBuf, destination: PathBuf) -> Self {
+        let (tx, events) = mpsc::channel::<EncodeEvent>();
+        let handle = std::thread::spawn(move || {
+            let event = match crate::encode::encode_gif(&source, &destination) {
+                Ok(path) => EncodeEvent::Finished(path),
+                Err(e) => EncodeEvent::Failed(format!("{e:#}")),
+            };
+            let _ = tx.send(event);
+        });
+        Self {
+            events,
+            handle: Some(handle),
+        }
+    }
+
+    pub fn poll(&self) -> Option<EncodeEvent> {
+        match self.events.try_recv() {
+            Ok(e) => Some(e),
+            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => None,
+        }
+    }
+}
+
+impl Drop for EncodingWorker {
+    fn drop(&mut self) {
         if let Some(h) = self.handle.take() {
             let _ = h.join();
         }
