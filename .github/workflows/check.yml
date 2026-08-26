@@ -62,17 +62,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - run: cargo clippy --locked --all-targets -- -D warnings
-      # Reuses what clippy just built.
-      - run: cargo test --locked
 
-      # The suite must actually have exercised ffmpeg. Tests self-skip when it is
-      # absent, so a green run proves nothing on its own — this fails if the
-      # media tests skipped.
-      - name: Confirm the media tests really ran
+      # One test run, inspected afterwards. Running the suite twice to check
+      # whether it skipped would cost as much as the check is worth.
+      #
+      # The check matters because the media tests self-skip when ffmpeg is
+      # missing, which is what CI did for a long time: every encoding and
+      # snapshot test skipped while the badge stayed green. A suite that skips
+      # looks exactly like a suite that passes.
+      - name: Test
         run: |
-          out=$(cargo test --locked --test encode -- --nocapture 2>&1)
-          if grep -q "skipping: ffmpeg not installed" <<<"$out"; then
-            echo "media tests skipped despite ffmpeg being installed" >&2
+          set -o pipefail
+          cargo test --locked -- --nocapture 2>&1 | tee test.log
+      - name: Confirm the media tests were not skipped
+        run: |
+          if grep -q 'skipping: ffmpeg not installed' test.log; then
+            echo '::error::media tests skipped even though ffmpeg is installed'
             exit 1
           fi
           echo "media tests ran"
