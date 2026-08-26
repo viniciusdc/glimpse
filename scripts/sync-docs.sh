@@ -17,6 +17,7 @@
 #   * every source file under src/ appears in that block
 #   * every `make <target>` mentioned in any .md is a real target
 #   * every relative link in the .md files resolves to a real file
+#   * every image referenced by a doc exists AND is tracked by git
 #
 # Deliberately not piped through head/tail: a pipeline reports the pager's exit
 # status, so a failure would look like a success.
@@ -125,6 +126,30 @@ verify_make_targets() {
   (( bad )) || note "make targets: every documented target exists"
 }
 
+verify_assets_are_tracked() {
+  # A file can exist locally, satisfy every path check, and still be missing from
+  # the repository because .gitignore swallowed it — which ships a broken image to
+  # everyone but the author. This caught exactly that: docs/assets/demo.gif was
+  # matched by a bare `*.gif` rule.
+  local f asset bad=0
+  for f in README.md CONTRIBUTING.md AGENTS.md docs/*.md docs/adr/*.md; do
+    [[ -e "$f" ]] || continue
+    while read -r asset; do
+      [[ -z "$asset" || "$asset" == http* ]] && continue
+      asset="$(dirname "$f")/$asset"
+      asset="${asset#./}"
+      if [[ ! -e "$asset" ]]; then
+        fail "$f references '$asset', which does not exist"
+        bad=1
+      elif ! git ls-files --error-unmatch "$asset" >/dev/null 2>&1; then
+        fail "$asset exists but is NOT tracked by git — check .gitignore"
+        bad=1
+      fi
+    done < <(grep -oE '(src|srcset)="[^"]+"' "$f" | sed 's/^[a-z]*="//; s/"$//')
+  done
+  (( bad )) || note "referenced assets: all exist and are tracked"
+}
+
 verify_relative_links() {
   local f link target bad=0
   for f in README.md AGENTS.md CONTRIBUTING.md docs/*.md docs/adr/*.md; do
@@ -147,6 +172,7 @@ sync_block README.md adr-index "$(generate_adr_index)"
 verify_layout_paths
 verify_sources_are_documented
 verify_make_targets
+verify_assets_are_tracked
 verify_relative_links
 
 if (( drift )); then

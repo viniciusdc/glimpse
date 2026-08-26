@@ -39,6 +39,16 @@ recording area — it is transparent and clicks pass straight through it, so you
 keep using the application underneath while you line the frame up and while you
 record.
 
+<div align="center">
+  <img src="docs/assets/demo.gif" alt="Glimpse: framing a region, recording it, and saving a GIF" width="800"/>
+</div>
+
+<p align="center">
+  <sub>An illustration, not a screen capture — drawn by
+  <a href="scripts/make-demo.py"><code>scripts/make-demo.py</code></a> and assembled with
+  Glimpse's own encoding pipeline. See the FAQ for why it is not a real recording.</sub>
+</p>
+
 It was built for the cases where a screenshot is not enough and a real screencast
 is too much: showing a UI interaction in a pull request, attaching a reproduction
 to a bug report, or demonstrating a feature in a README.

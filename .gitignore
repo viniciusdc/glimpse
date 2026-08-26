@@ -1,3 +1,8 @@
 /target
-*.gif
-*.webm
+
+# Recordings made while testing. Scoped to the working root on purpose: the
+# README's illustration lives in docs/assets and must be committed.
+/*.gif
+/*.mp4
+/*.webm
+/*.mkv
