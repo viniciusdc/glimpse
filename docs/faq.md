@@ -13,8 +13,7 @@ stacking order.
 ## Where does my recording go?
 
 Into your videos folder — `XDG_VIDEOS_DIR` if you have one, otherwise your home
-directory — as `glimpse.gif` or `glimpse.mp4`. Change it with **Save recordings
-to…** in the header menu. If that name is taken Glimpse counts up —
+directory — as `glimpse.gif` or `glimpse.mp4`. Change it under **Save to** in the header's settings popover. If that name is taken Glimpse counts up —
 `glimpse-1.gif`, `glimpse-2.gif` — rather than overwriting a file you might still
 want. The status line names the file it just wrote, and **Show in folder** opens
 it.

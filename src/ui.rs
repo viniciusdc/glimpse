@@ -41,7 +41,15 @@ use crate::x11probe::{self, shape_covers, X11Probe};
 /// they carry meaning rather than mood.
 struct Palette {
     header_bg: &'static str,
-    header_line: &'static str,
+    /// The header tints while recording. One of three cues on a window whose
+    /// middle is invisible, and it costs no chrome.
+    header_rec: &'static str,
+    /// Track the progress bar rides in — it replaces the header's bottom
+    /// hairline rather than adding a row.
+    rule: &'static str,
+    sheet_bg: &'static str,
+    sheet_fg: &'static str,
+    outline: &'static str,
     meta: &'static str,
     emphasis: &'static str,
     chip_line: &'static str,
@@ -54,7 +62,11 @@ struct Palette {
 
 const DARK: Palette = Palette {
     header_bg: "#282c33",
-    header_line: "rgba(0,0,0,0.4)",
+    header_rec: "#302a2c",
+    rule: "rgba(0,0,0,0.45)",
+    sheet_bg: "rgba(16,18,22,0.95)",
+    sheet_fg: "#c3c9d2",
+    outline: "rgba(255,255,255,0.16)",
     meta: "#8b939e",
     emphasis: "#c3c9d2",
     chip_line: "rgba(255,255,255,0.14)",
@@ -67,7 +79,11 @@ const DARK: Palette = Palette {
 
 const LIGHT: Palette = Palette {
     header_bg: "#e9ecf0",
-    header_line: "rgba(0,0,0,0.14)",
+    header_rec: "#f6e9e9",
+    rule: "rgba(0,0,0,0.14)",
+    sheet_bg: "rgba(248,249,251,0.97)",
+    sheet_fg: "#3b424b",
+    outline: "rgba(0,0,0,0.18)",
     meta: "#5c6570",
     emphasis: "#2f3640",
     chip_line: "rgba(0,0,0,0.20)",
@@ -93,17 +109,34 @@ window.glimpse {{ background: transparent; }}
 
 .glimpse-header {{
   background: {header_bg};
-  border-bottom: 1px solid {header_line};
   border-radius: 10px 10px 0 0;
   min-height: 44px;
   padding: 0 12px;
 }}
+.state-recording .glimpse-header,
+.state-stopping  .glimpse-header {{ background: {header_rec}; }}
+
+/* The hairline under the header. Progress replaces it rather than adding a
+   row — the bar is the same 2px the border already spent. */
+.glimpse-rule {{ background: {rule}; min-height: 2px; }}
+.glimpse-progress {{ background: {rule}; min-height: 2px; }}
+.glimpse-progress trough {{ background: transparent; min-height: 2px; border: 0; }}
+.glimpse-progress progress {{ background: #3689e6; min-height: 2px; border: 0; }}
 .glimpse-meta {{
   color: {meta};
   font-size: 12px;
   font-feature-settings: "tnum";
 }}
 .glimpse-elapsed {{ color: {emphasis}; }}
+/* Promoted while recording: the two facts that matter are that it is recording
+   and for how long. */
+.state-recording .glimpse-elapsed,
+.state-stopping  .glimpse-elapsed {{ font-size: 15px; font-weight: 500; color: #f0d4d4; }}
+.glimpse-rec-label {{
+  font-size: 12px;
+  letter-spacing: 1.2px;
+  color: #d78f8f;
+}}
 .glimpse-recdot {{
   background: #e04b4b;
   border-radius: 50%;
@@ -146,6 +179,8 @@ window.glimpse {{ background: transparent; }}
 .state-recording .glimpse-bullet,
 .state-stopping  .glimpse-bullet {{ min-width: 8px; min-height: 8px; border-radius: 0; }}
 
+/* Read-only. It reports the active format rather than competing with the split
+   button for the same click. */
 .glimpse-chip {{
   color: {meta};
   font-size: 10.5px;
@@ -201,11 +236,64 @@ window.glimpse {{ background: transparent; }}
   font-size: 11.5px;
 }}
 .glimpse-link:hover {{ color: {link_hover}; }}
+
+/* The result sheet. Replaces the status strip when there is something to say
+   that does not fit on one line — a path, a cause, real buttons. Costs nothing
+   at idle because it is not there. */
+.glimpse-sheet {{
+  background: {sheet_bg};
+  border-top: 1px solid rgba(54,137,230,0.5);
+  border-radius: 0 0 10px 10px;
+  min-height: 56px;
+  padding: 0 12px 0 14px;
+}}
+.state-aborted .glimpse-sheet {{ border-top-color: rgba(229,165,10,0.55); }}
+.glimpse-sheet-title {{ color: {sheet_fg}; font-size: 11.5px; font-weight: 500; }}
+.state-aborted .glimpse-sheet-title {{ color: #e0b45c; }}
+.glimpse-path {{
+  font-family: monospace;
+  font-size: 11px;
+  color: {meta};
+}}
+.glimpse-sheet-button {{
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 1px solid {outline};
+  background: none;
+  box-shadow: none;
+  font-size: 11px;
+  color: {sheet_fg};
+}}
+.glimpse-sheet-button:hover {{ background: {hover}; }}
+
+/* Settings popover: grouped inline controls, no navigation, no modal. */
+.glimpse-group {{
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: {meta};
+  padding: 4px 4px 2px;
+}}
+.glimpse-row {{ padding: 4px 4px; }}
+.glimpse-row label {{ font-size: 12.5px; color: {sheet_fg}; }}
+.glimpse-seg button {{
+  min-height: 24px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  border-radius: 0;
+  border: 1px solid {outline};
+  background: none;
+  box-shadow: none;
+  color: {sheet_fg};
+}}
+.glimpse-seg button:first-child {{ border-radius: 5px 0 0 5px; }}
+.glimpse-seg button:last-child {{ border-radius: 0 5px 5px 0; }}
+.glimpse-seg button:checked {{ background: #3689e6; color: #ffffff; border-color: #3689e6; }}
 .glimpse-grip-debug {{ background: rgba(255,0,255,0.6); }}
 "#,
         shadow = p.shadow,
         header_bg = p.header_bg,
-        header_line = p.header_line,
         meta = p.meta,
         emphasis = p.emphasis,
         chip_line = p.chip_line,
@@ -213,6 +301,11 @@ window.glimpse {{ background: transparent; }}
         status_bg = p.status_bg,
         link = p.link,
         link_hover = p.link_hover,
+        outline = p.outline,
+        sheet_fg = p.sheet_fg,
+        sheet_bg = p.sheet_bg,
+        rule = p.rule,
+        header_rec = p.header_rec,
     )
 }
 
@@ -256,7 +349,6 @@ pub struct FramingWindow {
     /// The chosen output format. Fixed for the duration of a session — it is
     /// copied into the `CaptureRequest` at arming time.
     format: Cell<OutputFormat>,
-    chip: gtk::MenuButton,
     /// Persisted user settings. Written on every change rather than on exit,
     /// because a screen recorder is the kind of thing people close abruptly.
     config: RefCell<Config>,
@@ -264,6 +356,15 @@ pub struct FramingWindow {
     /// What the primary button does when clicked.
     mode: Cell<Mode>,
     bullet: gtk::Box,
+    chip: gtk::Label,
+    rec_label: gtk::Label,
+    rule: gtk::Box,
+    progress: gtk::ProgressBar,
+    sheet: gtk::Box,
+    sheet_title: gtk::Label,
+    sheet_path: gtk::Label,
+    reveal_sheet: gtk::Button,
+    status_bar: gtk::Box,
 }
 
 impl FramingWindow {
@@ -309,12 +410,18 @@ impl FramingWindow {
         elapsed.add_css_class("glimpse-elapsed");
         elapsed.set_visible(false);
 
+        // The third recording cue, alongside the tinted header and the promoted
+        // timer. Three of them, because the window's middle is invisible.
+        let rec_label = gtk::Label::new(Some("REC"));
+        rec_label.add_css_class("glimpse-rec-label");
+        rec_label.set_visible(false);
+
         let meta = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         meta.set_hexpand(true);
         meta.set_halign(gtk::Align::Start);
         meta.append(&rec_dot);
-        meta.append(&size_label);
         meta.append(&elapsed);
+        meta.append(&size_label);
 
         let bullet = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         bullet.add_css_class("glimpse-bullet");
@@ -349,52 +456,18 @@ impl FramingWindow {
         action_group.append(&record);
         action_group.append(&mode_button);
 
-        let format_menu = gio::Menu::new();
-        for f in OutputFormat::all() {
-            let item = gio::MenuItem::new(Some(f.label()), None);
-            item.set_action_and_target_value(Some("win.format"), Some(&f.extension().to_variant()));
-            format_menu.append_item(&item);
-        }
-        let chip = gtk::MenuButton::builder()
-            .label(config.format.label())
-            .menu_model(&format_menu)
-            .build();
+        // Read-only: it reports the active format rather than competing with the
+        // split button for the same corner of the header. Changing it lives in
+        // settings, where the other capture options already are.
+        let chip = gtk::Label::new(Some(config.format.label()));
         chip.add_css_class("glimpse-chip");
         chip.set_valign(gtk::Align::Center);
 
-        let theme_menu = gio::Menu::new();
-        for t in Theme::all() {
-            let item = gio::MenuItem::new(Some(t.label()), None);
-            item.set_action_and_target_value(Some("win.theme"), Some(&t.id().to_variant()));
-            theme_menu.append_item(&item);
-        }
-
-        let rate_menu = gio::Menu::new();
-        for fps in [10u32, 15, 24, 30] {
-            let item = gio::MenuItem::new(Some(&format!("{fps} fps")), None);
-            item.set_action_and_target_value(
-                Some("win.framerate"),
-                Some(&(fps as i32).to_variant()),
-            );
-            rate_menu.append_item(&item);
-        }
-
-        let menu_model = gio::Menu::new();
-        let capture_section = gio::Menu::new();
-        capture_section.append_submenu(Some("Frame rate"), &rate_menu);
-        capture_section.append(Some("Capture pointer"), Some("win.capture-mouse"));
-        menu_model.append_section(None, &capture_section);
-        let output_section = gio::Menu::new();
-        output_section.append(Some("Save recordings to…"), Some("win.choose-folder"));
-        menu_model.append_section(None, &output_section);
-        menu_model.append_submenu(Some("Theme"), &theme_menu);
-        let tail = gio::Menu::new();
-        tail.append(Some("Show capture rect"), Some("win.show-rect"));
-        tail.append(Some("Quit"), Some("window.close"));
-        menu_model.append_section(None, &tail);
+        let settings = gtk::Popover::new();
+        settings.set_has_arrow(true);
         let menu = gtk::MenuButton::builder()
             .icon_name("open-menu-symbolic")
-            .menu_model(&menu_model)
+            .popover(&settings)
             .build();
         menu.add_css_class("glimpse-menu");
         menu.set_valign(gtk::Align::Center);
@@ -452,15 +525,68 @@ impl FramingWindow {
         let status_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         status_bar.add_css_class("glimpse-status");
         status_bar.append(&status_dot);
+        status_bar.append(&rec_label);
         status_bar.append(&status);
         status_bar.append(&reveal);
+
+        // The hairline under the header. While encoding it is replaced by a
+        // determinate bar of the same height, so progress costs no chrome.
+        let rule = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        rule.add_css_class("glimpse-rule");
+        let progress = gtk::ProgressBar::new();
+        progress.add_css_class("glimpse-progress");
+        progress.set_visible(false);
+
+        let rule_stack = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        rule_stack.append(&rule);
+        rule_stack.append(&progress);
+        rule.set_hexpand(true);
+        progress.set_hexpand(true);
+
+        // Results leave the one-line strip: a taller sheet takes its place so a
+        // path gets a full monospace line and real buttons, and it is simply not
+        // there when idle.
+        let sheet_title = gtk::Label::new(None);
+        sheet_title.add_css_class("glimpse-sheet-title");
+        sheet_title.set_xalign(0.0);
+        let sheet_path = gtk::Label::new(None);
+        sheet_path.add_css_class("glimpse-path");
+        sheet_path.set_xalign(0.0);
+        sheet_path.set_ellipsize(gtk::pango::EllipsizeMode::Start);
+        sheet_path.set_selectable(true);
+
+        let sheet_text = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        sheet_text.set_hexpand(true);
+        sheet_text.set_valign(gtk::Align::Center);
+        sheet_text.append(&sheet_title);
+        sheet_text.append(&sheet_path);
+
+        let copy_path = gtk::Button::with_label("Copy Path");
+        copy_path.add_css_class("glimpse-sheet-button");
+        copy_path.set_valign(gtk::Align::Center);
+        let reveal_sheet = gtk::Button::with_label("Show in Files");
+        reveal_sheet.add_css_class("glimpse-sheet-button");
+        reveal_sheet.set_valign(gtk::Align::Center);
+
+        let sheet_actions = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        sheet_actions.set_valign(gtk::Align::Center);
+        sheet_actions.append(&copy_path);
+        sheet_actions.append(&reveal_sheet);
+
+        let sheet = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        sheet.add_css_class("glimpse-sheet");
+        sheet.append(&sheet_text);
+        sheet.append(&sheet_actions);
+        sheet.set_visible(false);
 
         let shell = gtk::Box::new(gtk::Orientation::Vertical, 0);
         shell.add_css_class("glimpse-shell");
         shell.add_css_class("state-idle");
         shell.append(&header_handle);
+        shell.append(&rule_stack);
         shell.append(&frame);
         shell.append(&status_bar);
+        shell.append(&sheet);
 
         // Resize edges sit above everything, at the window's rim only.
         let overlay = gtk::Overlay::new();
@@ -493,12 +619,21 @@ impl FramingWindow {
             last_output: RefCell::new(None),
             format: Cell::new(config.format),
             chip: chip.clone(),
+            rec_label: rec_label.clone(),
+            rule: rule.clone(),
+            progress: progress.clone(),
+            sheet: sheet.clone(),
+            sheet_title: sheet_title.clone(),
+            sheet_path: sheet_path.clone(),
+            reveal_sheet: reveal_sheet.clone(),
+            status_bar: status_bar.clone(),
             mode: Cell::new(config.mode),
             bullet: bullet.clone(),
             config: RefCell::new(config),
             css: css.clone(),
         });
 
+        me.build_settings(&settings);
         me.apply_theme();
         {
             // Keep following the desktop while the theme is "system". GTK
@@ -519,28 +654,6 @@ impl FramingWindow {
 
         // Reachable from the header menu; the design has no room for a second
         // button and this is a developer affordance, not a primary action.
-        {
-            let me2 = me.clone();
-            let theme = me.config.borrow().theme;
-            let action = gio::SimpleAction::new_stateful(
-                "theme",
-                Some(glib::VariantTy::STRING),
-                &theme.id().to_variant(),
-            );
-            action.connect_activate(move |action, value| {
-                let Some(chosen) = value.and_then(|v| v.str().map(str::to_owned)) else {
-                    return;
-                };
-                let Some(theme) = Theme::from_id(&chosen) else {
-                    return;
-                };
-                action.set_state(&chosen.to_variant());
-                me2.config.borrow_mut().theme = theme;
-                me2.apply_theme();
-                me2.persist();
-            });
-            window.add_action(&action);
-        }
 
         {
             let me2 = me.clone();
@@ -566,30 +679,6 @@ impl FramingWindow {
                 me2.config.borrow_mut().mode = mode;
                 me2.persist();
                 me2.refresh();
-            });
-            window.add_action(&action);
-        }
-
-        {
-            let me2 = me.clone();
-            let rate = me.config.borrow().framerate as i32;
-            let action = gio::SimpleAction::new_stateful(
-                "framerate",
-                Some(glib::VariantTy::INT32),
-                &rate.to_variant(),
-            );
-            action.connect_activate(move |action, value| {
-                let Some(fps) = value.and_then(|v| v.get::<i32>()) else {
-                    return;
-                };
-                if me2.state.borrow().is_active() {
-                    me2.status.set_text("finish the current recording first");
-                    return;
-                }
-                action.set_state(&fps.to_variant());
-                me2.config.borrow_mut().framerate = fps as u32;
-                me2.persist();
-                me2.status.set_text(&format!("recording at {fps} fps"));
             });
             window.add_action(&action);
         }
@@ -625,53 +714,20 @@ impl FramingWindow {
 
         {
             let me2 = me.clone();
-            let action = gio::SimpleAction::new("show-rect", None);
-            action.connect_activate(move |_, _| {
-                match capture_rect(&me2.window, &me2.hole, &me2.probe) {
-                    Ok(r) if r.is_capturable() => me2
-                        .status
-                        .set_text(&format!("capture rect: {}x{} at {},{}", r.w, r.h, r.x, r.y)),
-                    Ok(r) => me2.status.set_text(&format!(
-                        "frame is off-screen ({}x{}) — nothing to capture",
-                        r.w, r.h
-                    )),
-                    Err(e) => me2.status.set_text(&format!("geometry error: {e}")),
+            copy_path.connect_clicked(move |_| {
+                let Some(path) = me2.last_output.borrow().clone() else {
+                    return;
+                };
+                if let Some(display) = gtk::gdk::Display::default() {
+                    display.clipboard().set_text(&path.display().to_string());
+                    me2.sheet_title.set_text("Path copied");
                 }
             });
-            window.add_action(&action);
         }
 
         {
             let me2 = me.clone();
-            let action = gio::SimpleAction::new_stateful(
-                "format",
-                Some(glib::VariantTy::STRING),
-                &OutputFormat::default().extension().to_variant(),
-            );
-            action.connect_activate(move |action, value| {
-                let Some(chosen) = value.and_then(|v| v.str().map(str::to_owned)) else {
-                    return;
-                };
-                let Some(format) = OutputFormat::all()
-                    .into_iter()
-                    .find(|f| f.extension() == chosen)
-                else {
-                    return;
-                };
-                // Changing format mid-session would leave the destination and the
-                // encoder disagreeing, so it is refused rather than half-applied.
-                if me2.state.borrow().is_active() {
-                    me2.status
-                        .set_text("finish the current recording before changing format");
-                    return;
-                }
-                action.set_state(&chosen.to_variant());
-                me2.format.set(format);
-                me2.chip.set_label(format.label());
-                me2.config.borrow_mut().format = format;
-                me2.persist();
-            });
-            window.add_action(&action);
+            reveal_sheet.connect_clicked(move |_| me2.open_containing_folder());
         }
 
         {
@@ -1402,6 +1458,9 @@ impl FramingWindow {
 
                 me.update_size_label();
                 me.tick_elapsed();
+                if matches!(&*me.state.borrow(), State::Encoding { .. }) {
+                    me.progress.pulse();
+                }
 
                 // The checked invariant from ADR 0004: x11grab records a fixed
                 // rectangle, so a moved frame means everything after the move is
@@ -1490,26 +1549,94 @@ impl FramingWindow {
 
         self.shell.add_css_class(class);
         self.record_label.set_text(action);
-        // The bullet is a circle for Record and a square for Stop; a snapshot is
-        // neither, so it gets the camera-shutter ring.
-        self.bullet
-            .set_visible(!matches!(&state, State::Idle) || self.mode.get() == Mode::Record);
         self.record.set_sensitive(sensitive);
         self.status.set_text(&status);
+        self.chip.set_text(match self.mode.get() {
+            // A still is always PNG, so reporting the recording format here would
+            // be reporting something that does not apply.
+            Mode::Snapshot => "PNG",
+            Mode::Record => self.format.get().label(),
+        });
 
         let recording = matches!(state, State::Recording { .. });
         self.rec_dot.set_visible(recording);
         self.elapsed.set_visible(recording);
+        self.rec_label.set_visible(recording);
         if !recording {
             self.started.set(None);
         }
 
-        let completed = matches!(state, State::Completed { .. });
-        self.status_dot
-            .set_visible(completed || class == "state-aborted");
-        self.reveal.set_visible(completed);
+        // The bullet is a circle for Record and a square for Stop; a snapshot is
+        // neither.
+        self.bullet
+            .set_visible(!matches!(&state, State::Idle) || self.mode.get() == Mode::Record);
+
+        // Progress replaces the hairline while encoding.
+        //
+        // It PULSES rather than filling: ffmpeg's frame count is not plumbed
+        // through yet, and a determinate bar sitting at a number nobody computed
+        // would be a lie told in pixels. The design asks for "Encoding 62% ·
+        // frame 78 / 126", which needs `-progress` parsed out of the encoder —
+        // until then this says "working", which is all it knows.
+        let encoding = matches!(state, State::Encoding { .. });
+        self.progress.set_visible(encoding);
+        self.rule.set_visible(!encoding);
+        if !encoding {
+            self.progress.set_fraction(0.0);
+        }
+
+        // A result gets the sheet; everything else gets the one-line strip.
+        let (sheet_title, sheet_path, offer_reveal) = match &state {
+            State::Completed { output } => (
+                Some(match std::fs::metadata(output).map(|m| m.len()) {
+                    Ok(bytes) => format!("Saved · {}", human_size(bytes)),
+                    Err(_) => "Saved".to_string(),
+                }),
+                Some(display_path(output)),
+                true,
+            ),
+            State::Failed { error, retryable } => (
+                Some(error.clone()),
+                retryable
+                    .as_ref()
+                    .map(|v| format!("Raw capture kept: {}", v.path.display())),
+                false,
+            ),
+            State::Cancelled { preserved: Some(v) } => (
+                Some("Cancelled".to_string()),
+                Some(format!("Raw capture kept: {}", v.path.display())),
+                false,
+            ),
+            _ => (None, None, false),
+        };
+
+        match sheet_title {
+            Some(title) => {
+                self.sheet_title.set_text(&title);
+                self.sheet_path
+                    .set_text(sheet_path.as_deref().unwrap_or(""));
+                self.sheet_path.set_visible(sheet_path.is_some());
+                self.reveal_sheet.set_visible(offer_reveal);
+                self.sheet.set_visible(true);
+                self.status_bar.set_visible(false);
+            }
+            None => {
+                self.sheet.set_visible(false);
+                self.status_bar.set_visible(true);
+            }
+        }
+
+        self.status_dot.set_visible(false);
+        self.reveal.set_visible(false);
         if let State::Completed { output } = &state {
             *self.last_output.borrow_mut() = Some(output.clone());
+        }
+        if let State::Failed {
+            retryable: Some(v), ..
+        }
+        | State::Cancelled { preserved: Some(v) } = &state
+        {
+            *self.last_output.borrow_mut() = Some(v.path.clone());
         }
     }
 
@@ -1734,5 +1861,227 @@ fn short_state(s: &State) -> &'static str {
         State::Completed { .. } => "Completed",
         State::Failed { .. } => "Failed",
         State::Cancelled { .. } => "Cancelled",
+    }
+}
+
+impl FramingWindow {
+    /// Fill the settings popover.
+    ///
+    /// Inline controls in labelled groups: no navigation, no modal, and it floats
+    /// outside the window so it never covers the region being framed. The menu it
+    /// replaces had settings, actions and Quit in one undifferentiated list.
+    fn build_settings(self: &Rc<Self>, popover: &gtk::Popover) {
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        root.set_size_request(268, -1);
+
+        let group = |text: &str| {
+            let l = gtk::Label::new(Some(text));
+            l.add_css_class("glimpse-group");
+            l.set_xalign(0.0);
+            l
+        };
+        let row = |label: &str, control: &gtk::Widget| {
+            let b = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            b.add_css_class("glimpse-row");
+            let l = gtk::Label::new(Some(label));
+            l.set_xalign(0.0);
+            l.set_hexpand(true);
+            b.append(&l);
+            b.append(control);
+            b
+        };
+
+        // ---- capture ----------------------------------------------------
+        root.append(&group("CAPTURE"));
+
+        let rates = [10u32, 15, 24, 30];
+        let seg = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        seg.add_css_class("glimpse-seg");
+        seg.set_valign(gtk::Align::Center);
+        let mut first: Option<gtk::ToggleButton> = None;
+        for fps in rates {
+            let b = gtk::ToggleButton::with_label(&fps.to_string());
+            match &first {
+                None => first = Some(b.clone()),
+                Some(f) => b.set_group(Some(f)),
+            }
+            b.set_active(self.config.borrow().framerate == fps);
+            let me = self.clone();
+            b.connect_toggled(move |b| {
+                if !b.is_active() {
+                    return;
+                }
+                if me.state.borrow().is_active() {
+                    me.status.set_text("finish the current recording first");
+                    return;
+                }
+                me.config.borrow_mut().framerate = fps;
+                me.persist();
+            });
+            seg.append(&b);
+        }
+        root.append(&row("Frame rate", seg.upcast_ref()));
+
+        let pointer = gtk::Switch::new();
+        pointer.set_valign(gtk::Align::Center);
+        pointer.set_active(self.config.borrow().capture_mouse);
+        {
+            let me = self.clone();
+            pointer.connect_state_set(move |_, on| {
+                me.config.borrow_mut().capture_mouse = on;
+                me.persist();
+                glib::Propagation::Proceed
+            });
+        }
+        root.append(&row("Capture pointer", pointer.upcast_ref()));
+
+        let show_rect = gtk::Button::with_label("Show");
+        show_rect.add_css_class("glimpse-sheet-button");
+        show_rect.set_valign(gtk::Align::Center);
+        {
+            let me = self.clone();
+            let pop = popover.clone();
+            show_rect.connect_clicked(move |_| {
+                pop.popdown();
+                me.report_capture_rect();
+            });
+        }
+        root.append(&row("Show capture rect", show_rect.upcast_ref()));
+
+        // ---- output -----------------------------------------------------
+        root.append(&group("OUTPUT"));
+
+        let fmt_seg = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        fmt_seg.add_css_class("glimpse-seg");
+        fmt_seg.set_valign(gtk::Align::Center);
+        let mut fmt_first: Option<gtk::ToggleButton> = None;
+        for f in OutputFormat::all() {
+            let b = gtk::ToggleButton::with_label(f.label());
+            match &fmt_first {
+                None => fmt_first = Some(b.clone()),
+                Some(g) => b.set_group(Some(g)),
+            }
+            b.set_active(self.format.get() == f);
+            let me = self.clone();
+            b.connect_toggled(move |b| {
+                if !b.is_active() {
+                    return;
+                }
+                if me.state.borrow().is_active() {
+                    me.status.set_text("finish the current recording first");
+                    return;
+                }
+                me.format.set(f);
+                me.config.borrow_mut().format = f;
+                me.persist();
+                me.refresh();
+            });
+            fmt_seg.append(&b);
+        }
+        root.append(&row("Format", fmt_seg.upcast_ref()));
+
+        let change = gtk::Button::with_label("Change…");
+        change.add_css_class("glimpse-sheet-button");
+        change.set_valign(gtk::Align::Center);
+        {
+            let me = self.clone();
+            let pop = popover.clone();
+            change.connect_clicked(move |_| {
+                pop.popdown();
+                me.choose_output_folder();
+            });
+        }
+        root.append(&row("Save to", change.upcast_ref()));
+
+        let folder = gtk::Label::new(Some(&display_path(&self.config.borrow().output_dir)));
+        folder.add_css_class("glimpse-path");
+        folder.set_xalign(0.0);
+        folder.set_ellipsize(gtk::pango::EllipsizeMode::Start);
+        folder.set_margin_start(4);
+        folder.set_margin_bottom(4);
+        root.append(&folder);
+
+        // ---- theme ------------------------------------------------------
+        root.append(&group("APPEARANCE"));
+        let theme_seg = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        theme_seg.add_css_class("glimpse-seg");
+        theme_seg.set_valign(gtk::Align::Center);
+        let mut t_first: Option<gtk::ToggleButton> = None;
+        for t in Theme::all() {
+            let b = gtk::ToggleButton::with_label(match t {
+                Theme::System => "Auto",
+                Theme::Light => "Light",
+                Theme::Dark => "Dark",
+            });
+            match &t_first {
+                None => t_first = Some(b.clone()),
+                Some(g) => b.set_group(Some(g)),
+            }
+            b.set_active(self.config.borrow().theme == t);
+            let me = self.clone();
+            b.connect_toggled(move |b| {
+                if !b.is_active() {
+                    return;
+                }
+                me.config.borrow_mut().theme = t;
+                me.apply_theme();
+                me.persist();
+            });
+            theme_seg.append(&b);
+        }
+        root.append(&row("Theme", theme_seg.upcast_ref()));
+
+        // Quit sits below a divider, apart from the settings.
+        let sep = gtk::Separator::new(gtk::Orientation::Horizontal);
+        sep.set_margin_top(6);
+        sep.set_margin_bottom(4);
+        root.append(&sep);
+
+        let quit = gtk::Button::with_label("Quit Glimpse");
+        quit.add_css_class("flat");
+        {
+            let win = self.window.clone();
+            quit.connect_clicked(move |_| win.close());
+        }
+        root.append(&quit);
+
+        popover.set_child(Some(&root));
+    }
+
+    fn open_containing_folder(&self) {
+        let Some(path) = self.last_output.borrow().clone() else {
+            return;
+        };
+        let dir = path.parent().unwrap_or(&path).to_path_buf();
+        let uri = format!("file://{}", dir.display());
+        if let Err(e) = gio::AppInfo::launch_default_for_uri(&uri, gio::AppLaunchContext::NONE) {
+            eprintln!("glimpse: could not open {uri}: {e}");
+        }
+    }
+
+    fn report_capture_rect(self: &Rc<Self>) {
+        match capture_rect(&self.window, &self.hole, &self.probe) {
+            Ok(r) if r.is_capturable() => self
+                .status
+                .set_text(&format!("capture rect: {}x{} at {},{}", r.w, r.h, r.x, r.y)),
+            Ok(r) => self
+                .status
+                .set_text(&format!("frame is off-screen ({}x{})", r.w, r.h)),
+            Err(e) => self.status.set_text(&format!("geometry error: {e}")),
+        }
+    }
+}
+
+/// Bytes as the sheet shows them.
+fn human_size(bytes: u64) -> String {
+    const MIB: f64 = 1024.0 * 1024.0;
+    const KIB: f64 = 1024.0;
+    let b = bytes as f64;
+    if b >= MIB {
+        format!("{:.1} MiB", b / MIB)
+    } else if b >= KIB {
+        format!("{:.0} KiB", b / KIB)
+    } else {
+        format!("{bytes} B")
     }
 }

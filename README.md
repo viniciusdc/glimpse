@@ -124,14 +124,13 @@ cargo run
 4. The file is written to your videos folder as `glimpse.gif` or `glimpse.mp4`.
    An existing file is never overwritten — you get `glimpse-1.gif`, and so on.
 
-Use the menu in the header to pick where recordings are saved, and to choose a
-light, dark, or system-matching theme. Both are remembered.
+The gear in the header opens settings: frame rate, pointer capture, output
+format and folder, and the theme. Everything is remembered.
 
 The header shows the exact pixel size of the recording area, and a timer while
 recording. The status line at the bottom tells you where the finished file went.
 
-Frame rate and pointer capture are in the header menu too, alongside the output
-folder and the theme. Everything is remembered.
+
 
 ## Frequently asked questions
 
