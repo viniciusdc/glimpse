@@ -98,7 +98,7 @@ it has no session, no lifecycle and nothing to stop
 Frame rate and pointer capture are in the header menu. Stale `glimpse-*`
 workspaces left by killed processes are removed at startup — only ones whose pid
 is gone, so a second running Glimpse is never touched. Encoding can be cancelled
-mid-flight, with [one unresolved reporting case](adr/0005-gif-encoding-and-the-atomic-commit.md).
+mid-flight: the destination is left untouched and the source recording preserved.
 
 ## Next — the things that make it an application
 
@@ -106,8 +106,7 @@ The elapsed-time indicator arrived with the UI and is not outstanding.
 
 Also outstanding, from [ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md):
 a process killed mid-encode still leaves a hidden `.part` file and palette in the
-destination directory, and cancelling an encode can report `Cancelled` while a
-finished file appears anyway.
+destination directory.
 
 ## Deliberately not planned for v0.1
 

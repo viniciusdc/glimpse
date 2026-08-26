@@ -122,6 +122,7 @@ Every variable the binary reads, in one place.
 | `GLIMPSE_SELFTEST=1` | Probe geometry and the input region, write a capture to `/tmp/glimpse-selftest.png`, then exit. |
 | `GLIMPSE_SELFTEST=record` | Drive a real Record → Stop cycle through the same path the button uses, print the final state, then exit. |
 | `GLIMPSE_SELFTEST=record-mp4` | The same, encoding to MP4 instead of GIF. |
+| `GLIMPSE_TRACE=1` | Print every state transition, effect and background result. Added after a debugging session in which a hand-added print silently failed to apply, and its absence was read as evidence about the program. |
 | `GLIMPSE_DEBUG_GRIPS=1` | Paint the invisible resize grips magenta. They are the easiest thing in the codebase to break without noticing, because nothing renders when they are wrong. |
 
 ## Verifying geometry changes
