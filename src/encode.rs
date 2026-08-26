@@ -20,9 +20,10 @@
 //!
 //! So this uses the defaults. A flag that cannot show a benefit does not go in.
 
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -207,6 +208,72 @@ impl Canceller {
     }
 }
 
+/// How far along an encode is, shared with whoever wants to draw it.
+///
+/// Held as per-mille in an atomic rather than a float, so the reader thread can
+/// publish without a lock. `None` until ffmpeg has reported something, because a
+/// progress bar sitting at zero and a progress bar that does not know are
+/// different claims and should look different.
+#[derive(Clone, Default)]
+pub struct Progress {
+    permille: Arc<AtomicU32>,
+}
+
+/// Sentinel for "nothing reported yet" — distinct from 0 per-mille.
+const UNKNOWN: u32 = u32::MAX;
+
+impl Progress {
+    pub fn new() -> Self {
+        Self {
+            permille: Arc::new(AtomicU32::new(UNKNOWN)),
+        }
+    }
+
+    pub fn fraction(&self) -> Option<f64> {
+        match self.permille.load(Ordering::Relaxed) {
+            UNKNOWN => None,
+            v => Some(f64::from(v) / 1000.0),
+        }
+    }
+
+    fn set(&self, fraction: f64) {
+        let clamped = (fraction.clamp(0.0, 1.0) * 1000.0).round() as u32;
+        self.permille.store(clamped, Ordering::Relaxed);
+    }
+
+    fn reset(&self) {
+        self.permille.store(UNKNOWN, Ordering::Relaxed);
+    }
+}
+
+/// Seconds of video in `source`, via ffprobe.
+///
+/// Needed because ffmpeg reports how far it has got, not how far there is to go.
+/// Returns `None` rather than guessing — without it the bar stays indeterminate,
+/// which is honest.
+fn duration_secs(source: &Path) -> Option<f64> {
+    let out = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+        ])
+        .arg(source)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|d| *d > 0.0)
+}
+
 /// Pick a path that does not overwrite anything.
 ///
 /// **Collision policy: never replace, never fail — disambiguate.** Silently
@@ -263,6 +330,17 @@ pub fn encode(
     format: OutputFormat,
     cancel: &Canceller,
 ) -> Result<PathBuf> {
+    encode_reporting(source, destination, format, cancel, &Progress::new())
+}
+
+/// As [`encode`], reporting how far along it is.
+pub fn encode_reporting(
+    source: &Path,
+    destination: &Path,
+    format: OutputFormat,
+    cancel: &Canceller,
+    progress: &Progress,
+) -> Result<PathBuf> {
     if !source.exists() {
         return Err(anyhow!("no recording at {}", source.display()));
     }
@@ -278,14 +356,44 @@ pub fn encode(
     ));
     let palette = dir.join(format!(".glimpse-{}-palette.png", std::process::id()));
 
+    progress.reset();
+    let total = duration_secs(source);
+
     let result = (|| -> Result<()> {
         match format {
+            // Two passes over the same clip, so the bar is split between them
+            // rather than filling twice. palettegen is the cheaper half in
+            // practice, hence the uneven split.
             OutputFormat::Gif => {
-                run(&palette_args(source, &palette), cancel).context("generating the palette")?;
-                run(&encode_args(source, &palette, &staged), cancel).context("encoding the GIF")?;
+                run_reporting(
+                    &palette_args(source, &palette),
+                    cancel,
+                    progress,
+                    total,
+                    0.0,
+                    0.35,
+                )
+                .context("generating the palette")?;
+                run_reporting(
+                    &encode_args(source, &palette, &staged),
+                    cancel,
+                    progress,
+                    total,
+                    0.35,
+                    1.0,
+                )
+                .context("encoding the GIF")?;
             }
             OutputFormat::Mp4 => {
-                run(&mp4_args(source, &staged), cancel).context("encoding the MP4")?;
+                run_reporting(
+                    &mp4_args(source, &staged),
+                    cancel,
+                    progress,
+                    total,
+                    0.0,
+                    1.0,
+                )
+                .context("encoding the MP4")?;
             }
         }
         Ok(())
@@ -323,16 +431,57 @@ pub fn encode(
 /// Polls rather than blocking on `wait`, because a blocked wait cannot be
 /// interrupted and cancellation would mean "finish, then throw the result away".
 fn run(args: &[String], cancel: &Canceller) -> Result<()> {
+    run_reporting(args, cancel, &Progress::new(), None, 0.0, 1.0)
+}
+
+/// Run ffmpeg, publishing progress into `progress` scaled between `from` and
+/// `to` so a multi-pass encode fills one bar once.
+fn run_reporting(
+    args: &[String],
+    cancel: &Canceller,
+    progress: &Progress,
+    total_secs: Option<f64>,
+    from: f64,
+    to: f64,
+) -> Result<()> {
     if cancel.is_cancelled() {
         return Err(anyhow!("cancelled"));
     }
 
-    let child = Command::new("ffmpeg")
-        .args(args)
-        .stdout(Stdio::null())
+    // -progress writes machine-readable key=value to stdout; -nostats silences
+    // the human-facing stderr version so the two do not interleave.
+    let mut with_progress: Vec<String> =
+        vec!["-nostats".into(), "-progress".into(), "pipe:1".into()];
+    with_progress.extend_from_slice(args);
+
+    let mut child = Command::new("ffmpeg")
+        .args(&with_progress)
+        .stdout(if total_secs.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stderr(Stdio::piped())
         .spawn()
         .context("spawning ffmpeg — is it installed?")?;
+
+    // Read on a thread: if nobody drains the pipe it fills and ffmpeg blocks,
+    // which would look exactly like a hung encode.
+    if let (Some(stdout), Some(total)) = (child.stdout.take(), total_secs) {
+        let progress = progress.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                let Some(us) = line.strip_prefix("out_time_us=") else {
+                    continue;
+                };
+                let Ok(us) = us.trim().parse::<f64>() else {
+                    continue;
+                };
+                let done = (us / 1_000_000.0 / total).clamp(0.0, 1.0);
+                progress.set(from + done * (to - from));
+            }
+        });
+    }
     cancel.adopt(child);
 
     loop {

@@ -100,6 +100,12 @@ workspaces left by killed processes are removed at startup — only ones whose p
 is gone, so a second running Glimpse is never touched. Encoding can be cancelled
 mid-flight: the destination is left untouched and the source recording preserved.
 
+## Done — the v2 interface
+
+Settings popover, read-only format chip, result sheet with the full path and real
+buttons, three recording cues, and a determinate encode progress bar driven by
+ffmpeg's own `-progress` output.
+
 ## Next — the things that make it an application
 
 The elapsed-time indicator arrived with the UI and is not outstanding.

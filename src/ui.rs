@@ -27,7 +27,7 @@ use std::rc::Rc;
 
 use crate::capture::{RecorderConfig, Workspace};
 use crate::config::{Config, Mode, Theme};
-use crate::encode::{Canceller, OutputFormat};
+use crate::encode::{Canceller, OutputFormat, Progress};
 use crate::geometry::{capture_rect, RootPixelRect};
 use crate::session::{transition, CaptureRequest, Effect, Event, State};
 use crate::worker::{FileJob, JobEvent, RecordingWorker, WorkerEvent};
@@ -326,6 +326,8 @@ pub struct FramingWindow {
     /// Stops the running encode. Replaced per job; cancelling a finished one is
     /// harmless.
     cancel_encode: RefCell<Canceller>,
+    /// How far the running encode has got. Replaced per job.
+    encode_progress: RefCell<Progress>,
     /// The current session's workspace.
     ///
     /// Tracked here rather than read back out of the state, because on the happy
@@ -605,6 +607,7 @@ impl FramingWindow {
             worker: RefCell::new(None),
             encoder: RefCell::new(None),
             cancel_encode: RefCell::new(Canceller::new()),
+            encode_progress: RefCell::new(Progress::new()),
             workspace: RefCell::new(None),
             status: status.clone(),
             record: record.clone(),
@@ -1351,9 +1354,17 @@ impl FramingWindow {
                 // runs to completion, and the file is committed while the session
                 // reports Cancelled.
                 let canceller = Canceller::new();
+                let progress = Progress::new();
                 *self.cancel_encode.borrow_mut() = canceller.clone();
+                *self.encode_progress.borrow_mut() = progress.clone();
                 *self.encoder.borrow_mut() = Some(FileJob::spawn(move || {
-                    crate::encode::encode(&src, &destination, format, &canceller)
+                    crate::encode::encode_reporting(
+                        &src,
+                        &destination,
+                        format,
+                        &canceller,
+                        &progress,
+                    )
                 }));
                 None
             }
@@ -1459,7 +1470,17 @@ impl FramingWindow {
                 me.update_size_label();
                 me.tick_elapsed();
                 if matches!(&*me.state.borrow(), State::Encoding { .. }) {
-                    me.progress.pulse();
+                    match me.encode_progress.borrow().fraction() {
+                        // ffmpeg has reported; show how far.
+                        Some(f) => {
+                            me.progress.set_fraction(f);
+                            me.status
+                                .set_text(&format!("Encoding {}%", (f * 100.0).round() as u32));
+                        }
+                        // Nothing reported yet — pulse rather than sit at zero,
+                        // which would claim no progress rather than no answer.
+                        None => me.progress.pulse(),
+                    }
                 }
 
                 // The checked invariant from ADR 0004: x11grab records a fixed
@@ -1571,13 +1592,10 @@ impl FramingWindow {
         self.bullet
             .set_visible(!matches!(&state, State::Idle) || self.mode.get() == Mode::Record);
 
-        // Progress replaces the hairline while encoding.
-        //
-        // It PULSES rather than filling: ffmpeg's frame count is not plumbed
-        // through yet, and a determinate bar sitting at a number nobody computed
-        // would be a lie told in pixels. The design asks for "Encoding 62% ·
-        // frame 78 / 126", which needs `-progress` parsed out of the encoder —
-        // until then this says "working", which is all it knows.
+        // Progress replaces the hairline while encoding, driven by ffmpeg's own
+        // `-progress` output. It pulses only until the first report arrives: a
+        // determinate bar at zero claims no progress, where the truth is no
+        // answer yet.
         let encoding = matches!(state, State::Encoding { .. });
         self.progress.set_visible(encoding);
         self.rule.set_visible(!encoding);

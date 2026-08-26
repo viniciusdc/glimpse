@@ -174,6 +174,21 @@ final path. Staging in the session temp directory would put the rename across
 filesystems, where it degrades to a copy and stops being atomic. A taken
 destination is disambiguated rather than replaced or refused.
 
+## Progress
+
+`encode` runs ffmpeg with `-progress pipe:1` and reads `out_time_us` off its
+stdout on a thread — if nobody drains that pipe it fills and ffmpeg blocks, which
+looks exactly like a hung encode. The total comes from `ffprobe` on the source,
+and returns `None` rather than a guess: without it the bar stays indeterminate,
+which is honest.
+
+GIF is two passes over the same clip, so the bar is split between them — 0..0.35
+for `palettegen`, 0.35..1 for `paletteuse` — rather than filling twice.
+
+`Progress::fraction()` is `None` until ffmpeg reports something. That is a
+different claim from zero, and the UI draws it differently: it pulses until the
+first report and fills afterwards.
+
 ## Snapshot
 
 `capture::snapshot` grabs one frame and commits it, without touching `session` —
