@@ -2,15 +2,13 @@
   <picture>
     <source media="(prefers-color-scheme: dark)"  srcset="docs/assets/banner-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.svg">
-    <img src="docs/assets/banner-dark.svg" alt="glimpse — the hole is the capture region" width="860"/>
+    <img src="docs/assets/banner-dark.svg" alt="glimpse" width="860"/>
   </picture>
 </div>
 
 <br/>
 
 <div align="center">
-
-**A screen recorder with a framing window. GIF or MP4.**
 
 [![Check](https://github.com/viniciusdc/glimpse/actions/workflows/check.yml/badge.svg)](https://github.com/viniciusdc/glimpse/actions/workflows/check.yml)
 [![Status](https://img.shields.io/badge/status-v0.1%20%C2%B7%20record%20%E2%86%92%20gif%20%7C%20mp4-f0883e)](docs/roadmap.md)

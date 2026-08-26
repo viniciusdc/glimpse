@@ -1,13 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="860" height="160" viewBox="0 0 860 160" role="img" aria-label="glimpse — the hole is the capture region">
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="160" viewBox="0 0 860 160" role="img" aria-label="glimpse">
   <title>glimpse</title>
   <rect width="860" height="160" fill="#ffffff"/>
 
   <!-- wordmark -->
-  <text x="48" y="84" font-family="Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+  <text x="48" y="90" font-family="Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
         font-size="44" font-weight="600" fill="#14181d">glimpse</text>
-  <text x="50" y="110" font-family="Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-        font-size="13.5" fill="#57606a">the hole is the capture region</text>
-  <rect x="50" y="124" width="30" height="2" rx="1" fill="#3689e6"/>
+  <rect x="50" y="106" width="34" height="2" rx="1" fill="#3689e6"/>
 
   <!-- What sits behind the framing window, drawn first so it shows through the
        hole. No clipPath: every element is already inside the card's bounds, and
