@@ -21,74 +21,47 @@
 
 </div>
 
-You place a window over the thing you want to record, and the hole in the middle
-*is* the capture region. Press record, get a GIF or an MP4.
+Place the window over what you want to record. The hole in the middle **is** the
+capture region — press Record, get a GIF or an MP4.
 
-The idea is not new: [Peek](https://github.com/phw/peek) established it, and
-Glimpse keeps its product design wholesale because that design is right. What
-Glimpse does not keep is any of Peek's code — this is an independent
-implementation in Rust on GTK4, where Peek is Vala on GTK3.
+The design is [Peek](https://github.com/phw/peek)'s, which got it right. Glimpse
+is an independent implementation in Rust on GTK4 and contains none of Peek's code.
 
-## Why
+## What it does
 
-Peek works. The reasons to rewrite it are narrow and worth stating plainly rather
-than dressing up:
-
-- **A conversion chain that is typed.** Turning a widget rectangle into
-  root-screen pixels is the one calculation this product cannot get wrong, and it
-  is exactly where logical and device coordinates get mixed. Each stage here is a
-  distinct type.
-- **A verification story, written down.** Two of the first three bugs found in
-  this codebase were confidently verified as *absent* by methods that could not
-  have detected them. What replaced those methods is in
-  [ADR 0000](docs/adr/0000-x11-framing-window-spike.md) and enforced by
-  `make selftest`.
-- **A path to Wayland that is honest about being a different product.** Peek's
-  Wayland support is its weakest area. Glimpse does not pretend a compositor that
-  mediates selection can host a window that chooses its own capture rectangle —
-  see [ADR 0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md).
-
-What it does *not* claim: better GIF quality. Glimpse uses the same ffmpeg
-`palettegen`/`paletteuse` path Peek does, and says so. Nor does it claim MP4 is
-dramatically smaller — measured on identical source, a mostly-static capture came
-out 1.5× smaller, not the order of magnitude usually quoted
-([ADR 0007](docs/adr/0007-gif-and-mp4.md)).
+- **Frames a region by being a window.** The centre is transparent and
+  click-through, so you can keep using whatever is underneath while you line it up.
+- **GIF or MP4**, picked from the header. Both go through a lossless intermediate,
+  so the format choice costs nothing at record time.
+- **Refuses to record the wrong thing.** `x11grab` captures a fixed rectangle, so
+  if the frame gets moved mid-recording the result would look plausible and be
+  wrong. Glimpse detects the move and aborts instead.
+- **Does not lose a recording to a failed encode.** The captured video is kept and
+  the status line says where it is.
+- **Does not leave ffmpeg running.** The child is reaped on every exit path, and
+  killed by the kernel if Glimpse dies without getting the chance.
 
 ## Status
 
-**v0.1 — recording works end to end.** Place the frame, press Record, get a GIF or
-an MP4. What is missing is application furniture, not the product: choosing where
-output goes, and persisted settings — framerate and cursor capture are currently
-fixed at 15fps with the cursor drawn. Order and reasoning in
-[`docs/roadmap.md`](docs/roadmap.md).
+**v0.1 — recording works end to end.** What is missing is application furniture
+rather than the product: output selection and persisted settings. Framerate and
+cursor capture are currently fixed at 15fps with the cursor drawn, and output goes
+to `~/glimpse.gif` or `~/glimpse.mp4`, disambiguated rather than overwritten.
+[`docs/roadmap.md`](docs/roadmap.md) has the order and the reasoning.
 
-Under that: a transparent, click-through framing window whose input region is
-re-punched whenever the layout settles; a typed conversion chain from widget
-bounds to root pixels, clipped to the screen; a pure session state machine that
-recording and encoding are both driven through; and both workers running off the
-UI thread so the window never freezes while ffmpeg finishes a file.
+Known limits, all deliberate and recorded:
 
-Two behaviours are worth calling out because they are the ones that stop a
-plausible-but-wrong file being produced:
+- **X11 only, by design rather than omission.** The framing-window idea does not
+  survive a compositor that mediates selection, so a Wayland build would be a
+  different interaction, not a port ([ADR 0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md)).
+- **An encode in progress cannot be cancelled**; quitting waits for it
+  ([ADR 0005](docs/adr/0005-gif-encoding-and-the-atomic-commit.md)).
+- **GIF quality matches Peek's**, since it is the same ffmpeg palette path. MP4 is
+  smaller, but by less than folklore suggests — 1.5× on a mostly-static capture,
+  measured ([ADR 0007](docs/adr/0007-gif-and-mp4.md)).
 
-- **A frame that moves mid-recording aborts.** `lock()` disables resizing but
-  cannot stop a window manager *moving* the window, and `x11grab` records a fixed
-  rectangle — so movement is detected by `geometry_drifted()` rather than assumed
-  away, and the recording is cut instead of silently capturing the wrong region.
-- **A failed encode never costs the recording.** The captured video is preserved
-  and the status line says where it is.
-
-The toolkit question was settled by evidence rather than preference. GTK4 removed
-the window-positioning APIs this product is built on, and the escape hatch back to
-raw X11 is deprecated as of GTK 4.18 **with no replacement**. Rather than assume, a
-throwaway spike answered three questions; all three passed, and
-[ADR 0000](docs/adr/0000-x11-framing-window-spike.md) records both the verdict and
-the deprecation that is *not* thereby repealed. Glimpse also draws its own resize
-edges, because GTK provides none once the titlebar is replaced
-([ADR 0006](docs/adr/0006-the-header-is-the-chrome.md)).
-
-> There is no screenshot in this README, deliberately. The middle of the window is
-> transparent, so any capture of it publishes whatever happened to be behind it.
+Why things are built the way they are, including the decisions that were reversed,
+is in [`docs/adr/`](docs/adr/).
 
 ## Building
 
@@ -117,26 +90,31 @@ on the backend GTK actually chose.
 `ffmpeg` is a runtime dependency, not a build one — the framing window runs
 without it, but nothing will record.
 
+There is no screenshot of the app in this README on purpose: the middle of the
+window is transparent, so any capture of it publishes whatever happened to be
+behind it.
+
 Glimpse draws its own window chrome, including its own resize edges, because GTK
 provides none once the titlebar is replaced. If resizing misbehaves on your
 compositor, `GLIMPSE_DECORATIONS=server` hands the frame back to the window
 manager. [`docs/development.md`](docs/development.md#environment-variables) lists
 every variable the binary reads.
 
-## Verifying it works
+## Development
 
 ```sh
-make selftest
+make            # list every target
+make check      # the gate: docs, formatting, clippy, tests
+make headless   # run it on a private X server, off your screen
+make smoke      # record → GIF and record → MP4, off your screen
 ```
 
-Reads the input shape back **from the X server** — the only sound way to confirm
-click-through — then grabs the computed rectangle to
-`/tmp/glimpse-selftest.png`. Open that image. Any part of Glimpse's own interface
-in it means the rectangle is wrong, whatever the numbers said.
+Glimpse is a screen recorder, so testing it naturally means opening windows and
+grabbing the display on the machine you are using. `make headless` and `make
+smoke` run it against an `Xvfb` instead.
 
-That last sentence is the whole lesson of this project so far: during the spike
-the computed rectangle matched `xwininfo` to the pixel and was still wrong by the
-3px width of the frame border.
+[`docs/development.md`](docs/development.md) covers the rest: verifying geometry
+changes, checking click-through, and every environment variable the binary reads.
 
 ## Project layout
 
