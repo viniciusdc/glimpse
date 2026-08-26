@@ -21,86 +21,158 @@
 
 </div>
 
-Place the window over what you want to record. The hole in the middle **is** the
-capture region — press Record, get a GIF or an MP4.
+Simple screen recorder for a region of your screen, with an easy to use interface.
 
-The design is [Peek](https://github.com/phw/peek)'s, which got it right. Glimpse
-is an independent implementation in Rust on GTK4 and contains none of Peek's code.
+## About
 
-## What it does
+Glimpse makes it easy to create short screencasts of a screen area. You place the
+Glimpse window over the part of the screen you want to record, press **Record**,
+and get an animated GIF or an MP4. The hole in the middle of the window *is* the
+recording area — it is transparent and clicks pass straight through it, so you can
+keep using the application underneath while you line the frame up and while you
+record.
 
-- **Frames a region by being a window.** The centre is transparent and
-  click-through, so you can keep using whatever is underneath while you line it up.
-- **GIF or MP4**, picked from the header. Both go through a lossless intermediate,
-  so the format choice costs nothing at record time.
-- **Refuses to record the wrong thing.** `x11grab` captures a fixed rectangle, so
-  if the frame gets moved mid-recording the result would look plausible and be
-  wrong. Glimpse detects the move and aborts instead.
-- **Does not lose a recording to a failed encode.** The captured video is kept and
-  the status line says where it is.
-- **Does not leave ffmpeg running.** The child is reaped on every exit path, and
-  killed by the kernel if Glimpse dies without getting the chance.
+It was built for the cases where a screenshot is not enough and a real screencast
+is too much: showing a UI interaction in a pull request, attaching a reproduction
+to a bug report, or demonstrating a feature in a README.
 
-## Status
+Glimpse is **not** a general purpose screencast application. It records one region
+of one screen, silently, to one file. There is no audio, no webcam, no editing, no
+streaming, and no full-desktop or multi-monitor capture. If you need those, use
+OBS.
 
-**v0.1 — recording works end to end.** What is missing is application furniture
-rather than the product: output selection and persisted settings. Framerate and
-cursor capture are currently fixed at 15fps with the cursor drawn, and output goes
-to `~/glimpse.gif` or `~/glimpse.mp4`, disambiguated rather than overwritten.
-[`docs/roadmap.md`](docs/roadmap.md) has the order and the reasoning.
+The design is [Peek](https://github.com/phw/peek)'s, which got it right, and which
+is now deprecated. Glimpse is an independent implementation in Rust on GTK4 and
+contains none of Peek's code.
 
-Known limits, all deliberate and recorded:
+Glimpse runs on **X11 only**. See the FAQ for why.
 
-- **X11 only, by design rather than omission.** The framing-window idea does not
-  survive a compositor that mediates selection, so a Wayland build would be a
-  different interaction, not a port ([ADR 0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md)).
-- **An encode in progress cannot be cancelled**; quitting waits for it
-  ([ADR 0005](docs/adr/0005-gif-encoding-and-the-atomic-commit.md)).
-- **GIF quality matches Peek's**, since it is the same ffmpeg palette path. MP4 is
-  smaller, but by less than folklore suggests — 1.5× on a mostly-static capture,
-  measured ([ADR 0007](docs/adr/0007-gif-and-mp4.md)).
+## Requirements
 
-Why things are built the way they are, including the decisions that were reversed,
-is in [`docs/adr/`](docs/adr/).
+### Runtime
 
-## Building
+- An X11 session
+- GTK4 >= 4.14
+- FFmpeg >= 6 (developed against 6.1)
 
-Requires stable Rust, an **X11 session**, and GTK4 development headers.
+### Building
+
+- Rust, stable
+- `libgtk-4-dev` and `pkg-config`
+
+## Installation
+
+There are no distribution packages yet. Build it from source:
 
 ```sh
-sudo apt install libgtk-4-dev ffmpeg
+sudo apt install libgtk-4-dev ffmpeg     # or your distribution's equivalent
+git clone https://github.com/viniciusdc/glimpse.git
+cd glimpse
+make install                             # into ~/.local, with a desktop entry
+```
+
+`make install PREFIX=/usr/local` installs system-wide, and `make uninstall`
+removes it. `make check-reqs` reports anything missing before a build finds out.
+
+To run it without installing:
+
+```sh
 cargo run
 ```
 
-`make check-reqs` reports what is missing, and `make` on its own lists every
-target. `make headless` runs Glimpse on a private X server if you would rather it
-did not appear on yours. To install it properly:
+## Usage
 
-```sh
-make install                    # ~/.local/bin plus a desktop entry
-make install PREFIX=/usr/local  # or wherever
-```
+1. Launch Glimpse. Move and resize the window until the hole covers what you want
+   to record — drag the header to move it, drag any edge or corner to resize.
+2. Pick **GIF** or **MP4** from the chip in the header.
+3. Press **Record**. Press **Stop** when you are done.
+4. The file is written to your home directory as `glimpse.gif` or `glimpse.mp4`.
+   An existing file is never overwritten — you get `glimpse-1.gif`, and so on.
 
-**Wayland is not supported, and not by omission.** Glimpse checks the GDK backend
-at startup and exits with an explanation rather than running and misbehaving.
-Connecting to an X server is not sufficient evidence — under Wayland, XWayland
-usually answers on `$DISPLAY` while GTK selects its own backend, so the check is
-on the backend GTK actually chose.
+The header shows the exact pixel size of the recording area, and a timer while
+recording. The status line at the bottom tells you where the finished file went.
 
-`ffmpeg` is a runtime dependency, not a build one — the framing window runs
-without it, but nothing will record.
+Recording is currently fixed at 15 frames per second with the mouse cursor drawn.
+Making those configurable, and letting you choose where files go, is the next work
+— see [`docs/roadmap.md`](docs/roadmap.md).
 
-There is no screenshot of the app in this README on purpose: the middle of the
-window is transparent, so any capture of it publishes whatever happened to be
-behind it.
+## Frequently asked questions
 
-Glimpse draws its own window chrome, including its own resize edges, because GTK
-provides none once the titlebar is replaced. If resizing misbehaves on your
-compositor, `GLIMPSE_DECORATIONS=server` hands the frame back to the window
-manager. [`docs/development.md`](docs/development.md#environment-variables) lists
-every variable the binary reads.
+### Can I click things inside the recording area while recording?
 
-## Development
+Yes. The recording area is a real hole: Glimpse sets an X input shape so the
+middle of the window does not accept pointer events at all, and they go to
+whatever is underneath. This does not depend on your window manager or on
+stacking order.
+
+### Where does my recording go?
+
+`~/glimpse.gif` or `~/glimpse.mp4`. If that name is taken Glimpse counts up —
+`glimpse-1.gif`, `glimpse-2.gif` — rather than overwriting a file you might still
+want. The status line names the file it just wrote, and **Show in folder** opens
+it.
+
+### Why is my GIF so large?
+
+Because it is a GIF. Every frame is a full image with a 256-colour palette, and
+there is no motion compensation, so file size scales with how much of the screen
+changes. Recording a smaller area, or something with less motion, helps most.
+
+If the destination accepts video, choose **MP4** instead. It is meaningfully
+smaller — though by less than is often claimed: on a mostly-static capture it came
+out about 1.5× smaller, not ten times.
+
+### Why use GIF at all then?
+
+Because it plays inline, automatically, silently and everywhere — in issue
+trackers, pull requests, chat clients and documentation, with no player controls
+and no click to start. That is the entire reason the format survives, and it is
+why it is the default here.
+
+### My recording stopped by itself and said the frame moved. Why?
+
+Glimpse records a fixed rectangle of the screen. If the window is moved after
+recording starts — dragged, or moved by the window manager — everything captured
+after the move is of the wrong region, while the resulting file still looks
+perfectly plausible. Rather than hand you a wrong recording, Glimpse stops and
+tells you. The captured video up to that point is kept, and the status line says
+where.
+
+Resizing is disabled while recording for the same reason.
+
+### Encoding failed. Did I lose the recording?
+
+No. The captured video is preserved and the status line gives you its path. Only
+the conversion failed, so you can retry from that file with ffmpeg directly.
+
+### Can I record audio, or my webcam, or the whole desktop?
+
+No, and none of these are planned. Glimpse records one silent region. See *About*.
+
+### Why no Wayland support?
+
+Not an omission — the idea does not survive the transition. Glimpse works by being
+a window that knows where it is on screen and declares its own capture rectangle.
+Under Wayland the compositor mediates screen capture: an application asks the
+portal, and the *user* picks what gets shared. A framing window cannot choose its
+own region, so a Wayland version would be a different application with a different
+interaction, not a port of this one.
+
+Glimpse checks which display backend GTK actually chose at startup and exits with
+an explanation rather than running and misbehaving. Note that having `DISPLAY` set
+is not enough to be on X11 — under Wayland, XWayland usually answers it too.
+
+### Why is there no screenshot of the app in this README?
+
+Because the middle of the window is transparent, any capture of Glimpse also
+publishes whatever happened to be behind it at the time. The banner above is an
+illustration for that reason.
+
+## Contributing
+
+Bug reports and pull requests are welcome.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers what a pull request has to clear;
+[`docs/development.md`](docs/development.md) covers setting up.
 
 ```sh
 make            # list every target
@@ -113,8 +185,8 @@ Glimpse is a screen recorder, so testing it naturally means opening windows and
 grabbing the display on the machine you are using. `make headless` and `make
 smoke` run it against an `Xvfb` instead.
 
-[`docs/development.md`](docs/development.md) covers the rest: verifying geometry
-changes, checking click-through, and every environment variable the binary reads.
+Decisions — including the ones that were reversed and why — are recorded in
+[`docs/adr/`](docs/adr/).
 
 ## Project layout
 
