@@ -430,10 +430,6 @@ pub fn encode_reporting(
 ///
 /// Polls rather than blocking on `wait`, because a blocked wait cannot be
 /// interrupted and cancellation would mean "finish, then throw the result away".
-fn run(args: &[String], cancel: &Canceller) -> Result<()> {
-    run_reporting(args, cancel, &Progress::new(), None, 0.0, 1.0)
-}
-
 /// Run ffmpeg, publishing progress into `progress` scaled between `from` and
 /// `to` so a multi-pass encode fills one bar once.
 fn run_reporting(
