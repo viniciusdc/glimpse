@@ -44,7 +44,7 @@ record.
 <p align="center">
   <sub>An illustration, not a screen capture — drawn frame by frame by
   <a href="scripts/make-demo.py"><code>scripts/make-demo.py</code></a>, then assembled with
-  Glimpse's own encoding pipeline. See the FAQ for why it is not a real recording.</sub>
+  Glimpse's own encoding pipeline.</sub>
 </p>
 
 It was built for the cases where a screenshot is not enough and a real screencast
@@ -227,8 +227,3 @@ docs/
 ## Licence
 
 Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
-Peek is GPL-3.0-or-later and remains so; it is prior art and an acknowledged
-influence on the product design, and none of its code, resources or assets are
-present here. See [ADR 0003](docs/adr/0003-apache-2-0.md) for the reasoning and
-for the constraint it places on future work.
