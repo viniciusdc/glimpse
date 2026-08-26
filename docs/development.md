@@ -76,6 +76,17 @@ elsewhere by splitting the crate. That has not been done, because it would test
 logic that already has no platform-specific behaviour, at the cost of a split that
 exists only to serve CI.
 
+## Regenerating the README animation
+
+```sh
+make demo
+```
+
+Draws 360 frames and assembles them through Glimpse's own pipeline. **It takes
+about seven minutes**, almost all of it ImageMagick rendering SVG — it has not
+hung. `--fps` and `--scale` trade size against smoothness; the default lands at
+roughly 390 KB.
+
 ## Keeping the docs honest
 
 Documentation drift is invisible to the compiler, and it was the largest category

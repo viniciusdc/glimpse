@@ -38,12 +38,12 @@ keep using the application underneath while you line the frame up and while you
 record.
 
 <div align="center">
-  <img src="docs/assets/demo.gif" alt="Glimpse: framing a region, recording it, and saving a GIF" width="800"/>
+  <img src="docs/assets/demo.gif" alt="Glimpse: framing a region, recording it, encoding, saving, taking a snapshot, and aborting when the frame moves" width="888"/>
 </div>
 
 <p align="center">
-  <sub>An illustration, not a screen capture — drawn by
-  <a href="scripts/make-demo.py"><code>scripts/make-demo.py</code></a> and assembled with
+  <sub>An illustration, not a screen capture — drawn frame by frame by
+  <a href="scripts/make-demo.py"><code>scripts/make-demo.py</code></a>, then assembled with
   Glimpse's own encoding pipeline. See the FAQ for why it is not a real recording.</sub>
 </p>
 

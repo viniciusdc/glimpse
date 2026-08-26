@@ -113,7 +113,9 @@ is not enough to be on X11 — under Wayland, XWayland usually answers it too.
 ## Is that animation a real recording?
 
 No, and it says so under the image. It is drawn frame by frame by
-[`scripts/make-demo.py`](../scripts/make-demo.py) — though it is assembled into a GIF
+[`scripts/make-demo.py`](../scripts/make-demo.py), following a 36-second script —
+open settings, record, encode, save, switch to Snapshot, then move the frame
+mid-recording and watch the abort — though it is assembled into a GIF
 by Glimpse's own pipeline, an ffv1 intermediate and then `palettegen`/`paletteuse`,
 so the file itself is produced exactly the way a real recording would be.
 
