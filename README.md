@@ -194,6 +194,7 @@ scripts/
   sync-docs.sh          Regenerates the ADR index; fails the build on doc drift
 docs/
   adr/                  Decision records, append-only
+  releasing.md          Cutting a release and verifying it
   faq.md                Using it: output, formats, aborted recordings, platforms
   assets/               README banner, light and dark
   architecture.md       The stack, the modules, the conversion chain
@@ -208,6 +209,7 @@ docs/
 - [`docs/architecture.md`](docs/architecture.md) — the stack, the conversion chain, the session lifecycle
 - [`docs/development.md`](docs/development.md) — setting up, the gates, verifying geometry and click-through
 - [`docs/roadmap.md`](docs/roadmap.md) — what is done, and what comes next in dependency order
+- [`docs/releasing.md`](docs/releasing.md) — cutting a release, and verifying it like a user
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — what a pull request has to clear
 - [`AGENTS.md`](AGENTS.md) — working agreement for coding agents
 - [`docs/adr/`](docs/adr/) — decision records:

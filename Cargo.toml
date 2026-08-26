@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Animated GIF screen recorder with a framing window. Rust, GTK4, X11."
 license = "Apache-2.0"
+repository = "https://github.com/viniciusdc/glimpse"
 
 [dependencies]
 # v4_10 for FileDialog, which is how the output folder is chosen.

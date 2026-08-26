@@ -40,6 +40,19 @@ jobs:
           sudo apt-get update
           timeout 5m sudo apt-get install -y --no-install-recommends libgtk-4-dev ffmpeg
 
+      # A tag and a crate version that disagree ship an artifact named one thing
+      # built from a crate that calls itself another, so `glimpse --version`
+      # would contradict the file the user downloaded.
+      - name: Tag must match the crate version
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          crate=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$tag" != "v$crate" ]; then
+            echo "::error::tag $tag does not match Cargo.toml version $crate (expected v$crate)"
+            exit 1
+          fi
+          echo "tag $tag matches crate version $crate"
+
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable, 2026-08
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 

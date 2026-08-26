@@ -7,7 +7,42 @@ use gtk4 as gtk;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// Answer `--version` and `--help` before touching GTK.
+///
+/// A released binary that cannot say what it is leaves the user comparing file
+/// dates. Returns true if the process should stop here.
+fn handled_cli() -> bool {
+    match std::env::args().nth(1).as_deref() {
+        Some("--version" | "-V") => {
+            println!("glimpse {}", env!("CARGO_PKG_VERSION"));
+            true
+        }
+        Some("--help" | "-h") => {
+            println!(
+                "glimpse {v}\n\n\
+                 A screen recorder with a framing window. Place the window over what you\n\
+                 want to record; the hole in the middle is the capture region.\n\n\
+                 Usage: glimpse\n\n\
+                 Options:\n  \
+                 -V, --version   Print the version\n  \
+                 -h, --help      Print this help\n\n\
+                 Settings live in ~/.config/glimpse/config.toml and in the header menu.\n\
+                 Requires an X11 session and ffmpeg.\n\
+                 {r}",
+                v = env!("CARGO_PKG_VERSION"),
+                r = env!("CARGO_PKG_REPOSITORY"),
+            );
+            true
+        }
+        _ => false,
+    }
+}
+
 fn main() -> glib::ExitCode {
+    if handled_cli() {
+        return glib::ExitCode::SUCCESS;
+    }
+
     let app = gtk::Application::builder()
         .application_id("com.vinicius.glimpse")
         .build();

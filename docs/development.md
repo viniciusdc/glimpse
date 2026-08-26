@@ -55,7 +55,7 @@ snapshot test silently skipped and those paths had no coverage at all while the
 badge stayed green. The test job now asserts the media tests actually ran, because
 a suite that skips is indistinguishable from a suite that passes.
 
-`Release` builds a tagged Linux binary, running the full suite against the exact
+[`releasing.md`](releasing.md) covers cutting one. `Release` builds a tagged Linux binary, running the full suite against the exact
 tree being shipped first. **There is no macOS or Windows build**, and that is a
 design consequence rather than a gap — see below.
 
