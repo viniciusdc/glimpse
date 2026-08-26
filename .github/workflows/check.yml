@@ -51,10 +51,23 @@ jobs:
       # ffmpeg is a RUNTIME dependency, and without it every encoding test
       # silently skips — which is what CI did until now, so the encode and
       # snapshot paths had no coverage here at all.
-      - name: Install GTK4 headers and ffmpeg
+      # Measured: installing ffmpeg unconditionally cost 109s of a 189s job — more
+      # than clippy and the tests combined. Ask before paying: the runner image
+      # may already have it, and if it does this step is seconds.
+      - name: Install system dependencies
         run: |
-          sudo apt-get update
-          timeout 5m sudo apt-get install -y --no-install-recommends libgtk-4-dev ffmpeg
+          need=()
+          pkg-config --exists gtk4 || need+=(libgtk-4-dev)
+          command -v ffmpeg >/dev/null || need+=(ffmpeg)
+          echo "ffmpeg preinstalled: $(command -v ffmpeg || echo no)"
+          if [ ${#need[@]} -eq 0 ]; then
+            echo "nothing to install"
+          else
+            echo "installing: ${need[*]}"
+            sudo apt-get update
+            timeout 5m sudo apt-get install -y --no-install-recommends "${need[@]}"
+          fi
+          ffmpeg -version | head -1
 
       - uses: dtolnay/rust-toolchain@stable
         with:
