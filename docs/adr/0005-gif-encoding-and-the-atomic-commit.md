@@ -107,11 +107,16 @@ interface and macOS is also `unix`, so a `cfg(unix)` guard would compile there a
 fail to link. Glimpse is Linux-only today, but the guard should be true rather
 than merely sufficient.
 
-**Still open:** the session's temp directory survives a hard kill, because
-removing it needs code to run and nothing does. That is a few megabytes in `/tmp`
-until the system cleans it, rather than a process still writing to a deleted
-directory — a smaller problem than the one it replaced, but not nothing. Sweeping
-stale `glimpse-*` workspaces at startup would close it.
+**Both leftovers are now swept at the next startup**, which is the only moment
+code can run to remove them: `capture::sweep_stale_workspaces` for the session
+directory in `/tmp`, and `encode::sweep_stale_staging` for the `.part` file and
+palette that a kill between writing and renaming leaves in the *output* folder.
+
+Both are deliberately narrow. They match only Glimpse's own naming, and only when
+the process id in the name is no longer alive — a second Glimpse recording or
+encoding right now must not have its files deleted out from under it. Verified
+against a live-pid file, a dead-pid file, and ordinary files sitting in the same
+folder.
 
 
 ---

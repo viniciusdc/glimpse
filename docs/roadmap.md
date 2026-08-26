@@ -108,13 +108,30 @@ ffmpeg's own `-progress` output. **Encode Anyway** re-encodes a preserved captur
 without re-recording, and Esc and Print Screen do what the status strip says they
 do.
 
-## Next — the things that make it an application
+## Done — tidying up after a hard kill
 
-The elapsed-time indicator arrived with the UI and is not outstanding.
+Nothing can clean up during a `SIGKILL`, so it happens at the next startup:
+stale session directories in `/tmp`, and the `.part` file and palette a kill
+between writing and renaming leaves in the output folder. Both match only
+Glimpse's own naming and only dead process ids
+([ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md)).
 
-Also outstanding, from [ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md):
-a process killed mid-encode still leaves a hidden `.part` file and palette in the
-destination directory.
+## Next
+
+Nothing is queued. The product does what it set out to do: frame a region,
+record it to GIF or MP4, snapshot it, and refuse to hand over a file that is
+quietly wrong.
+
+Candidates, in no particular order and none of them committed to:
+
+- **APNG or WebM output.** Cheap — another arm on the encoder — but neither has
+  asked to exist yet.
+- **A shortcuts window**, once there are more than two shortcuts.
+- **Multi-monitor awareness.** The capture rect is clipped to the root window,
+  which spans all outputs, so nothing is broken; but the app has no notion of
+  which screen it is on.
+- **Wayland**, which remains a different application rather than a port
+  ([ADR 0002](adr/0002-ffmpeg-pipeline-and-session-model.md)).
 
 ## Deliberately not planned for v0.1
 

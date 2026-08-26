@@ -260,7 +260,7 @@ pub fn sweep_stale_workspaces() -> usize {
 
 /// The pid encoded in a `glimpse-<pid>-<n>` directory name, if it is one and it
 /// is not ours.
-fn stale_workspace_pid(name: &str, own_pid: u32) -> Option<u32> {
+pub(crate) fn stale_workspace_pid(name: &str, own_pid: u32) -> Option<u32> {
     let rest = name.strip_prefix("glimpse-")?;
     let (pid, seq) = rest.split_once('-')?;
     // Both halves must be numeric, so unrelated `glimpse-*` directories — the
@@ -271,12 +271,12 @@ fn stale_workspace_pid(name: &str, own_pid: u32) -> Option<u32> {
 }
 
 #[cfg(target_os = "linux")]
-fn process_is_alive(pid: u32) -> bool {
+pub(crate) fn process_is_alive(pid: u32) -> bool {
     std::path::Path::new(&format!("/proc/{pid}")).exists()
 }
 
 #[cfg(not(target_os = "linux"))]
-fn process_is_alive(_pid: u32) -> bool {
+pub(crate) fn process_is_alive(_pid: u32) -> bool {
     // Without /proc, assume alive: leaving a directory behind is a much smaller
     // mistake than deleting a running session's recording.
     true

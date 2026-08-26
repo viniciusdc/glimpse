@@ -158,6 +158,50 @@ pub fn encode_args(source: &Path, palette: &Path, output: &Path) -> Vec<String> 
     ]
 }
 
+/// The pid encoded in a `.glimpse-<pid>-…` staging filename, if it is one and
+/// it is not ours.
+fn stale_staging_pid(name: &str, own_pid: u32) -> Option<u32> {
+    let rest = name.strip_prefix(".glimpse-")?;
+    let (pid, _) = rest.split_once('-')?;
+    let pid: u32 = pid.parse().ok()?;
+    (pid != own_pid).then_some(pid)
+}
+
+/// Remove staging left in `dir` by Glimpse processes that are gone.
+///
+/// The commit is a rename, so a process killed between writing the staged file
+/// and renaming it leaves `.glimpse-<pid>-….part` and a palette behind. Nothing
+/// can clean those at the time — deleting them needs code to run, and on
+/// `SIGKILL` none does — so it happens at the next startup, the same way stale
+/// workspaces are handled.
+///
+/// Only files matching Glimpse's own naming, and only when their process is no
+/// longer alive: a second Glimpse encoding into the same folder right now must
+/// not have its staging deleted out from under it.
+pub fn sweep_stale_staging(dir: &Path) -> usize {
+    let me = std::process::id();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(pid) = stale_staging_pid(name, me) else {
+            continue;
+        };
+        if crate::capture::process_is_alive(pid) {
+            continue;
+        }
+        match std::fs::remove_file(entry.path()) {
+            Ok(()) => removed += 1,
+            Err(e) => eprintln!("glimpse: could not remove {}: {e}", entry.path().display()),
+        }
+    }
+    removed
+}
+
 /// A handle that can stop an encode that is already running.
 ///
 /// ADR 0002 asked for cancellation to be defined separately for capture and
@@ -547,6 +591,49 @@ fn run_reporting(
                     detail.lines().last().unwrap_or("no stderr")
                 ));
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stale_staging_pid;
+
+    #[test]
+    fn recognises_our_own_staging_names() {
+        // Every staged name this module writes starts `.glimpse-<pid>-`.
+        assert_eq!(
+            stale_staging_pid(".glimpse-1234-out.gif.part", 999),
+            Some(1234)
+        );
+        assert_eq!(
+            stale_staging_pid(".glimpse-1234-palette.png", 999),
+            Some(1234)
+        );
+        assert_eq!(
+            stale_staging_pid(".glimpse-1234-snapshot.png.part", 999),
+            Some(1234)
+        );
+    }
+
+    #[test]
+    fn never_touches_the_running_process_staging() {
+        assert_eq!(stale_staging_pid(".glimpse-999-out.gif.part", 999), None);
+    }
+
+    #[test]
+    fn leaves_the_users_own_files_alone() {
+        // These live in the output directory, which is somebody's Videos folder.
+        for name in [
+            "glimpse.gif",
+            "glimpse-1.mp4",
+            ".glimpse",
+            ".glimpse-",
+            ".glimpsed-1234-x",
+            "holiday.gif",
+            ".glimpse-notes-2026",
+        ] {
+            assert_eq!(stale_staging_pid(name, 999), None, "{name}");
         }
     }
 }

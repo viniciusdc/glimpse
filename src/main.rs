@@ -82,6 +82,12 @@ fn main() -> glib::ExitCode {
             0 => {}
             n => eprintln!("glimpse: removed {n} stale workspace(s) from a previous run"),
         }
+        // And staging left in the output folder, which the workspace sweep does
+        // not reach because it lives beside the user's finished files.
+        match glimpse::encode::sweep_stale_staging(&glimpse::config::Config::load().output_dir) {
+            0 => {}
+            n => eprintln!("glimpse: removed {n} stale staging file(s) from a previous run"),
+        }
 
         let framing_window = ui::FramingWindow::new(app, probe);
         framing_window.window.present();
