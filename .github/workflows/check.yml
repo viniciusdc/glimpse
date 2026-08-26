@@ -4,40 +4,75 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Lets a run be started by hand. Added after two pushes landed on main without
-  # producing a run at all, leaving commits that were never verified and no way
-  # to ask for verification after the fact.
   workflow_dispatch:
+
+# A newer push makes an in-flight run pointless. Cancel it rather than paying for
+# both — except on main, where every commit's result is worth keeping.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0        # incremental artifacts are useless to a fresh runner
 
 jobs:
-  check:
+  # Needs no toolchain and no system libraries, so it answers in seconds and
+  # catches the largest category of finding this project has had: docs drifting
+  # from the code.
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: make docs-check
+
+  # Formatting needs rustfmt and nothing else — no GTK, no cache, no build.
+  # Kept separate so it fails in ~15s instead of behind a five-minute compile.
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+
+  test:
+    name: Clippy and tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install GTK4 development headers
+      # ffmpeg is a RUNTIME dependency, and without it every encoding test
+      # silently skips — which is what CI did until now, so the encode and
+      # snapshot paths had no coverage here at all.
+      - name: Install GTK4 headers and ffmpeg
         run: |
           sudo apt-get update
-          timeout 5m sudo apt-get install -y libgtk-4-dev
+          timeout 5m sudo apt-get install -y --no-install-recommends libgtk-4-dev ffmpeg
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
-
+          components: clippy
       - uses: Swatinem/rust-cache@v2
 
-      # Documentation drift is invisible to the compiler, and was the largest
-      # category of finding in this project's first review. Cheapest gate here,
-      # so it runs first.
-      - run: make docs-check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      # Reuses what clippy just built.
+      - run: cargo test --locked
 
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      # Only the display-independent tests can run here: the geometry chain
-      # needs a live X server, and CI has none. `make selftest` covers the rest
-      # on a real machine — see docs/development.md.
-      - run: cargo test
+      # The suite must actually have exercised ffmpeg. Tests self-skip when it is
+      # absent, so a green run proves nothing on its own — this fails if the
+      # media tests skipped.
+      - name: Confirm the media tests really ran
+        run: |
+          out=$(cargo test --locked --test encode -- --nocapture 2>&1)
+          if grep -q "skipping: ffmpeg not installed" <<<"$out"; then
+            echo "media tests skipped despite ffmpeg being installed" >&2
+            exit 1
+          fi
+          echo "media tests ran"

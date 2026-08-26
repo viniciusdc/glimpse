@@ -22,6 +22,43 @@ make check      # docs-check, fmt, clippy, test — fastest-failing first
 make test       # tests only
 ```
 
+## What CI runs
+
+Three jobs, in parallel, so the wall clock is the slowest one rather than the sum:
+
+| job | needs | why it is separate |
+|---|---|---|
+| **Docs** | nothing | No toolchain, no system libraries — answers in seconds, and doc drift has been this project's largest category of finding |
+| **Format** | rustfmt | Fails in ~15s instead of behind a five-minute compile |
+| **Clippy and tests** | GTK4 headers, ffmpeg | The long pole |
+
+**ffmpeg is installed in CI on purpose.** The media tests self-skip when it is
+absent, and CI did not install it for a long time — so every encoding and
+snapshot test silently skipped and those paths had no coverage at all while the
+badge stayed green. The test job now asserts the media tests actually ran, because
+a suite that skips is indistinguishable from a suite that passes.
+
+`Release` builds a tagged Linux binary, running the full suite against the exact
+tree being shipped first. **There is no macOS or Windows build**, and that is a
+design consequence rather than a gap — see below.
+
+## Why there is no macOS or Windows build
+
+Glimpse works by being a window that knows where it is on screen and declares its
+own capture rectangle. Wayland's portal model, macOS and Windows all deliberately
+refuse that. It also links `gdk4-x11` and `x11rb`, and shells out to ffmpeg's
+`x11grab`.
+
+A build for those platforms would not be a port. It would be a different
+application that happened to share a name — which is the same reasoning that keeps
+Wayland out ([ADR 0002](adr/0002-ffmpeg-pipeline-and-session-model.md)).
+
+The genuinely portable code — the session state machine, settings, the encoder's
+argument construction and collision handling — could be compiled and tested
+elsewhere by splitting the crate. That has not been done, because it would test
+logic that already has no platform-specific behaviour, at the cost of a split that
+exists only to serve CI.
+
 ## Keeping the docs honest
 
 Documentation drift is invisible to the compiler, and it was the largest category

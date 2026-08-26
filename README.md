@@ -186,6 +186,15 @@ refusing to run.
 
 No, and none of these are planned. Glimpse records one silent region. See *About*.
 
+### Are there macOS or Windows builds?
+
+No, and there will not be. Glimpse works by being a window that knows its own
+position on screen and declares its own capture rectangle; macOS and Windows both
+refuse that, and it links X11 libraries besides. A build for either would be a
+different application sharing a name, not a port — the same reason Wayland is out.
+
+Releases are Linux x86_64, and need an X11 session, GTK4 >= 4.10 and ffmpeg.
+
 ### Why no Wayland support?
 
 Not an omission — the idea does not survive the transition. Glimpse works by being
