@@ -1,6 +1,14 @@
 <div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)"  srcset="docs/assets/banner-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.svg">
+    <img src="docs/assets/banner-dark.svg" alt="glimpse — the hole is the capture region" width="860"/>
+  </picture>
+</div>
 
-# glimpse
+<br/>
+
+<div align="center">
 
 **A screen recorder with a framing window. GIF or MP4.**
 
@@ -162,6 +170,7 @@ scripts/
   sync-docs.sh          Regenerates the ADR index; fails the build on doc drift
 docs/
   adr/                  Decision records, append-only
+  assets/               README banner, light and dark
   architecture.md       The stack, the modules, the conversion chain
   development.md        Setting up, the gates, how to verify geometry changes
   roadmap.md            What comes next, in dependency order

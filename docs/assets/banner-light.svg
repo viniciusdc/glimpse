@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="160" viewBox="0 0 860 160" role="img" aria-label="glimpse — the hole is the capture region">
+  <title>glimpse</title>
+  <rect width="860" height="160" fill="#ffffff"/>
+
+  <!-- wordmark -->
+  <text x="48" y="84" font-family="Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+        font-size="44" font-weight="600" fill="#14181d">glimpse</text>
+  <text x="50" y="110" font-family="Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+        font-size="13.5" fill="#57606a">the hole is the capture region</text>
+  <rect x="50" y="124" width="30" height="2" rx="1" fill="#3689e6"/>
+
+  <!-- What sits behind the framing window, drawn first so it shows through the
+       hole. No clipPath: every element is already inside the card's bounds, and
+       a renderer that skips clipPath would otherwise drop the whole group. -->
+  <rect x="452" y="16" width="380" height="128" rx="8" fill="#1c2026"/>
+  <path d="M452 24 a8 8 0 0 1 8 -8 h364 a8 8 0 0 1 8 8 v12 h-380 Z" fill="#23272e"/>
+  <circle cx="464" cy="26" r="3" fill="#4a505a"/>
+  <rect x="474" y="23.5" width="34" height="5" rx="2.5" fill="#6d7681"/>
+  <rect x="516" y="23.5" width="26" height="5" rx="2.5" fill="#4a505a"/>
+  <g>
+    <rect x="466" y="48"  width="52"  height="5" rx="2.5" fill="#c084d8"/>
+    <rect x="524" y="48"  width="86"  height="5" rx="2.5" fill="#7f8894"/>
+    <rect x="466" y="62"  width="34"  height="5" rx="2.5" fill="#68b3f0"/>
+    <rect x="506" y="62"  width="120" height="5" rx="2.5" fill="#69727d"/>
+    <rect x="480" y="76"  width="150" height="5" rx="2.5" fill="#5d666f"/>
+    <rect x="480" y="90"  width="96"  height="5" rx="2.5" fill="#8fbf72"/>
+    <rect x="584" y="90"  width="60"  height="5" rx="2.5" fill="#5d666f"/>
+    <rect x="466" y="104" width="70"  height="5" rx="2.5" fill="#e0a35c"/>
+    <rect x="542" y="104" width="110" height="5" rx="2.5" fill="#565f68"/>
+    <rect x="480" y="118" width="132" height="5" rx="2.5" fill="#4f575f"/>
+  </g>
+
+  <!-- The framing window. Its middle is never painted: that IS the point. -->
+  <path d="M470 30 a6 6 0 0 1 6 -6 h332 a6 6 0 0 1 6 6 v20 h-344 Z" fill="#282c33"/>
+  <text x="482" y="43" font-family="Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+        font-size="9.5" fill="#8b939e">754 &#215; 438</text>
+  <rect x="602" y="31" width="82" height="18" rx="9" fill="#3689e6"/>
+  <circle cx="615" cy="40" r="3.5" fill="#ffffff"/>
+  <text x="624" y="43.5" font-family="Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+        font-size="10" font-weight="500" fill="#ffffff">Record</text>
+  <rect x="766" y="33.5" width="26" height="13" rx="3" fill="none" stroke="#a7aeb9" stroke-opacity="0.45"/>
+  <text x="770" y="43" font-family="Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+        font-size="8" fill="#a7aeb9">GIF</text>
+  <g stroke="#a7aeb9" stroke-width="1.4" stroke-linecap="round" opacity="0.8">
+    <line x1="800" y1="36" x2="808" y2="36"/>
+    <line x1="800" y1="40" x2="808" y2="40"/>
+    <line x1="800" y1="44" x2="808" y2="44"/>
+  </g>
+
+  <!-- The capture region: border only, no fill. -->
+  <rect x="471.5" y="51.5" width="341" height="65" fill="none" stroke="#3689e6" stroke-width="3"/>
+
+  <path d="M470 118 h344 v14 a6 6 0 0 1 -6 6 h-332 a6 6 0 0 1 -6 -6 Z" fill="#101216"/>
+  <text x="482" y="130.5" font-family="Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+        font-size="9" fill="#8b939e">Position the frame, then Record.</text>
+
+  <line x1="0" y1="159.5" x2="860" y2="159.5" stroke="#d0d7de" stroke-width="1" stroke-opacity="0.5"/>
+</svg>
