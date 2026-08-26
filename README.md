@@ -2,10 +2,10 @@
 
 # glimpse
 
-**An animated GIF screen recorder with a framing window.**
+**A screen recorder with a framing window. GIF or MP4.**
 
 [![Check](https://github.com/viniciusdc/glimpse/actions/workflows/check.yml/badge.svg)](https://github.com/viniciusdc/glimpse/actions/workflows/check.yml)
-[![Status](https://img.shields.io/badge/status-v0.1%20%C2%B7%20framing%20window-f0883e)](docs/roadmap.md)
+[![Status](https://img.shields.io/badge/status-v0.1%20%C2%B7%20record%20%E2%86%92%20gif%20%7C%20mp4-f0883e)](docs/roadmap.md)
 [![Rust](https://img.shields.io/badge/rust-stable-000000?logo=rust&logoColor=white)](Cargo.toml)
 [![GTK](https://img.shields.io/badge/gtk-4.x-4a86cf?logo=gnome&logoColor=white)](https://gtk-rs.org)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -14,7 +14,7 @@
 </div>
 
 You place a window over the thing you want to record, and the hole in the middle
-*is* the capture region. Press record, get a GIF.
+*is* the capture region. Press record, get a GIF or an MP4.
 
 The idea is not new: [Peek](https://github.com/phw/peek) established it, and
 Glimpse keeps its product design wholesale because that design is right. What
@@ -40,36 +40,44 @@ than dressing up:
   mediates selection can host a window that chooses its own capture rectangle —
   see [ADR 0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md).
 
-What it does *not* claim: better GIF quality. v0.1 uses the same ffmpeg
-`palettegen`/`paletteuse` path Peek does, and says so.
+What it does *not* claim: better GIF quality. Glimpse uses the same ffmpeg
+`palettegen`/`paletteuse` path Peek does, and says so. Nor does it claim MP4 is
+dramatically smaller — measured on identical source, a mostly-static capture came
+out 1.5× smaller, not the order of magnitude usually quoted
+([ADR 0007](docs/adr/0007-gif-and-mp4.md)).
 
 ## Status
 
-**v0.1 — the framing window works; capture does not exist yet.**
+**v0.1 — recording works end to end.** Place the frame, press Record, get a GIF or
+an MP4. What is missing is application furniture, not the product: choosing where
+output goes, and persisted settings — framerate and cursor capture are currently
+fixed at 15fps with the cursor drawn. Order and reasoning in
+[`docs/roadmap.md`](docs/roadmap.md).
 
-Running today: a transparent, click-through framing window whose input region is
-re-punched whenever the layout settles; `capture_rect` running the full
-conversion chain with clipping to the root window; and a `lock()`/`unlock()`
-contract that snapshots the rect and disables resizing. Note the precise claim:
-`lock()` does **not** stop a window manager from *moving* the frame, so movement
-is detected by `geometry_drifted()` rather than assumed away.
+Under that: a transparent, click-through framing window whose input region is
+re-punched whenever the layout settles; a typed conversion chain from widget
+bounds to root pixels, clipped to the screen; a pure session state machine that
+recording and encoding are both driven through; and both workers running off the
+UI thread so the window never freezes while ffmpeg finishes a file.
 
-The toolkit question is settled and it was settled by evidence, not preference.
-GTK4 removed the window-positioning APIs this product is built on, and the escape
-hatch back to raw X11 is deprecated as of GTK 4.18 **with no replacement**. Rather
-than assume, a throwaway spike answered three questions; all three passed, and
-[ADR 0000](docs/adr/0000-x11-framing-window-spike.md) records both the verdict
-and the deprecation that is *not* thereby repealed.
+Two behaviours are worth calling out because they are the ones that stop a
+plausible-but-wrong file being produced:
 
-The session lifecycle exists and is fully tested — a pure state machine that maps
-events to effects, so policies like "a failed encode must not cost the recording"
-and "a frame that moves mid-recording aborts" are pinned by tests that need no
-display. **Record → GIF or MP4 works end to end.** The button drives the machine, recording and
-encoding both run off the UI thread, a frame that moves mid-recording aborts, and
-the finished GIF is committed with an atomic same-filesystem rename. What is
-missing is the application furniture: choosing where output goes, and persisted
-settings — framerate and cursor capture are hard-coded for now. Order and
-reasoning in [`docs/roadmap.md`](docs/roadmap.md).
+- **A frame that moves mid-recording aborts.** `lock()` disables resizing but
+  cannot stop a window manager *moving* the window, and `x11grab` records a fixed
+  rectangle — so movement is detected by `geometry_drifted()` rather than assumed
+  away, and the recording is cut instead of silently capturing the wrong region.
+- **A failed encode never costs the recording.** The captured video is preserved
+  and the status line says where it is.
+
+The toolkit question was settled by evidence rather than preference. GTK4 removed
+the window-positioning APIs this product is built on, and the escape hatch back to
+raw X11 is deprecated as of GTK 4.18 **with no replacement**. Rather than assume, a
+throwaway spike answered three questions; all three passed, and
+[ADR 0000](docs/adr/0000-x11-framing-window-spike.md) records both the verdict and
+the deprecation that is *not* thereby repealed. Glimpse also draws its own resize
+edges, because GTK provides none once the titlebar is replaced
+([ADR 0006](docs/adr/0006-the-header-is-the-chrome.md)).
 
 > There is no screenshot in this README, deliberately. The middle of the window is
 > transparent, so any capture of it publishes whatever happened to be behind it.
@@ -100,6 +108,12 @@ on the backend GTK actually chose.
 `ffmpeg` is a runtime dependency, not a build one — the framing window runs
 without it, but nothing will record.
 
+Glimpse draws its own window chrome, including its own resize edges, because GTK
+provides none once the titlebar is replaced. If resizing misbehaves on your
+compositor, `GLIMPSE_DECORATIONS=server` hands the frame back to the window
+manager. [`docs/development.md`](docs/development.md#environment-variables) lists
+every variable the binary reads.
+
 ## Verifying it works
 
 ```sh
@@ -129,7 +143,7 @@ src/
   session.rs            The recording lifecycle: pure state machine, no I/O
   capture.rs            The ffmpeg recorder: owns the child, reaps on every path
   worker.rs             Runs the recorder off the UI thread; dropping it reaps
-  encode.rs             GIF encoding: two-pass palette, atomic commit
+  encode.rs             GIF and MP4 encoding, and the atomic commit
   ui.rs                 The framing window: hole, input region, lock/unlock
 examples/
   root_geometry.rs      Query X with no GTK window involved
@@ -139,7 +153,7 @@ tests/
   geometry.rs           Clipping — the part of the chain testable without a display
   session.rs            Lifecycle policy: drift, retry, cancellation, shutdown
   capture.rs            ffmpeg arguments and workspace ownership
-  encode.rs             Collision policy, argument shape, a real end-to-end encode
+  encode.rs             Collision policy, argument shape, real GIF and MP4 encodes
 data/
   glimpse.desktop       Desktop entry, installed by `make install`
 scripts/
@@ -154,15 +168,15 @@ docs/
 
 ## Further reading
 
-- [`docs/architecture.md`](docs/architecture.md) — the conversion chain and why each stage is its own type
+- [`docs/architecture.md`](docs/architecture.md) — the stack, the conversion chain, the session lifecycle
 - [`docs/development.md`](docs/development.md) — setting up, the gates, verifying geometry and click-through
-- [`docs/roadmap.md`](docs/roadmap.md) — capture, encoding, the session state machine
+- [`docs/roadmap.md`](docs/roadmap.md) — what is done, and what comes next in dependency order
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — what a pull request has to clear
 - [`AGENTS.md`](AGENTS.md) — working agreement for coding agents
 - [`docs/adr/`](docs/adr/) — decision records:
 <!-- BEGIN GENERATED adr-index (regenerate with `make docs-sync`) -->
   - [0000](docs/adr/0000-x11-framing-window-spike.md) — The X11 framing-window spike
-  - [0001](docs/adr/0001-rust-and-gtk4.md) — Rust and GTK4, rewriting Peek
+  - [0001](docs/adr/0001-rust-and-gtk4.md) — Rust and GTK4 as the stack
   - [0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md) — An ffmpeg-only pipeline, and an explicit session model
   - [0003](docs/adr/0003-apache-2-0.md) — Apache-2.0, and what that requires of the capture implementation
   - [0004](docs/adr/0004-review-corrections-and-the-lifecycle-spine.md) — Review corrections, and a lifecycle spine before capture

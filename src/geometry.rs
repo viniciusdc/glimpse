@@ -14,8 +14,9 @@
 //!    structurally — the capture widget draws nothing and the frame is painted by
 //!    its parent — rather than by subtracting a magic number. `verify_against`
 //!    exists to keep it honest.
-//! 2. Never derive DPI from monitor physical size. DP-2 on this box reports
-//!    1mm x 1mm. Only the integer scale factor is trusted.
+//! 2. Never derive DPI from monitor physical size. The monitor this was written
+//!    against reports 1mm x 1mm, and lying EDIDs are common. Only the integer
+//!    scale factor is trusted.
 
 use anyhow::{anyhow, Result};
 use gtk::prelude::*;

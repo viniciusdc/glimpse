@@ -13,7 +13,7 @@
 //!
 //! The frame border lives on `frame`, never on `hole`. `compute_bounds` returns a
 //! widget's *border box*, so a border on the capture target would be recorded as
-//! part of every GIF. The T-0367 spike hit exactly that, and it survived an
+//! part of every GIF. The spike in ADR 0000 hit exactly that, and it survived an
 //! `xwininfo` cross-check. Separating the two removes the bug class instead of
 //! compensating for it with a magic inset.
 

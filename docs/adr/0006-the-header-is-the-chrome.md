@@ -36,7 +36,7 @@ and the preserved-recording path).
 
 The first attempt shipped `set_decorated(false)` and assumed GTK would still
 provide resize edges. **It does not**, and the window could not be resized at all
-— reported by the developer, then reproduced by simulating an edge drag with
+— found in use, then reproduced by simulating an edge drag with
 `xdotool` and watching the geometry not move.
 
 `set_titlebar(custom)` was tried next, on the theory that keeping client-side

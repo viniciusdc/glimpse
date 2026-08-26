@@ -31,20 +31,17 @@ quietly break the Apache-2.0 basis of this project. Cite the doc in a comment
 where a flag choice is non-obvious. See
 [ADR 0003](docs/adr/0003-apache-2-0.md).
 
-**Never derive DPI from monitor physical size.** This machine's monitor reports
-1mm × 1mm. Only the integer scale factor is trusted.
+**Never derive DPI from monitor physical size.** A monitor on the development
+machine reports its physical size as 1mm × 1mm, and monitors that lie about this
+are common. Only the integer scale factor is trusted.
 
 **`ui::window_xid` is a deliberate choke point.** `GdkX11Surface::xid` is
 deprecated since GTK 4.18 with no replacement. Keep every use of it in that one
 function so the eventual fallback is a single edit.
 
-**The self-test PNG is a picture of the developer's screen.** `make selftest`
+**The self-test PNG is a picture of your screen.** `make selftest`
 grabs whatever the framing window was over. Never attach it to a pull request,
 an issue, or a commit. The README has no screenshot for the same reason.
-
-**`D-00xx` / `T-03xx` identifiers** in ADR headers and code comments point at the
-author's private decision tracker. They will not resolve for you. The ADRs in
-`docs/adr/` are the authoritative public record.
 
 ## Scope discipline
 

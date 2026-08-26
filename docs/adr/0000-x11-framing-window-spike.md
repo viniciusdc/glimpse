@@ -2,7 +2,6 @@
 
 - **Status:** ACCEPTED (spike closed, code deleted)
 - **Date:** 2026-08-25
-- **Brain:** mirrors `D-0057`, `T-0367`
 
 ## Context
 
@@ -23,8 +22,8 @@ three questions before any product code existed:
 - **Q1** Can we compute the root-pixel rect of an inner widget, accurately, on
   X11 under gala?
 - **Q2** Does `gdk_surface_set_input_region` give a real click-through hole?
-- **Q3** Does the scale-factor path survive this machine's monitor, whose EDID
-  reports a physical size of 1mm × 1mm?
+- **Q3** Does the scale-factor path survive a monitor whose EDID reports a
+  physical size of 1mm × 1mm? (One on the development machine does.)
 
 ## Decision
 
@@ -78,7 +77,7 @@ the image.**
 ## Costs accepted
 
 The spike proves GTK4 works **today, on 4.14.5**. It does not repeal the
-deprecation. When this machine reaches GTK ≥ 4.18 the call begins warning, and if
+deprecation. On GTK ≥ 4.18 the call begins warning, and if
 it is ever removed the fallbacks are GTK3 or a framing window owned directly
 through `x11rb`. `ui::window_xid` is the single choke point for that reason —
 when it breaks, exactly one function changes.

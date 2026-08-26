@@ -79,7 +79,7 @@ impl OutputFormat {
 /// The crop filter is not optional. **H.264 with `yuv420p` requires even
 /// dimensions**, and a framing window produces odd ones constantly — the first
 /// real capture this project made was 754x437. Without it ffmpeg fails with
-/// "Error while opening encoder", verified on this machine.
+/// "Error while opening encoder".
 ///
 /// Cropping is chosen over the alternatives deliberately. `pad` adds a visible
 /// black line; `scale` resamples the entire frame, which blurs text and is the

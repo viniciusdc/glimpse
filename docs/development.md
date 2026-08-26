@@ -54,8 +54,21 @@ make install PREFIX=/usr/local # or anywhere
 make uninstall
 ```
 
-Builds run under `nice -n 19` with `-j 2`. The developer is usually using this
-machine; a build should yield rather than compete with it.
+Builds run under `nice -n 19` with `-j 2`, on the assumption that you are using
+the machine for something else while they run. Override `NICE=` and `JOBS=` if
+you would rather they did not.
+
+## Environment variables
+
+Every variable the binary reads, in one place.
+
+| Variable | Effect |
+|---|---|
+| `GLIMPSE_DECORATIONS=server` | Hand the window frame back to the window manager. Glimpse normally draws its own chrome *and its own resize edges* — use this if resizing misbehaves on your compositor ([ADR 0006](adr/0006-the-header-is-the-chrome.md)). |
+| `GLIMPSE_SELFTEST=1` | Probe geometry and the input region, write a capture to `/tmp/glimpse-selftest.png`, then exit. |
+| `GLIMPSE_SELFTEST=record` | Drive a real Record → Stop cycle through the same path the button uses, print the final state, then exit. |
+| `GLIMPSE_SELFTEST=record-mp4` | The same, encoding to MP4 instead of GIF. |
+| `GLIMPSE_DEBUG_GRIPS=1` | Paint the invisible resize grips magenta. They are the easiest thing in the codebase to break without noticing, because nothing renders when they are wrong. |
 
 ## Verifying geometry changes
 
@@ -101,15 +114,17 @@ in the page underneath. When the picture looks wrong, *establish* what it is.
 ## Verifying the recording path
 
 ```sh
-GLIMPSE_SELFTEST=record cargo run
+GLIMPSE_SELFTEST=record       # to GIF
+GLIMPSE_SELFTEST=record-mp4   # to MP4
 ```
 
 Drives a real Record → Stop cycle through the same code path the button uses,
-then prints the final state and the recorded file. Until GIF encoding exists the
-run ends in `Failed { retryable: Some(..) }` **on purpose** — the session takes
-the same path a real encoder failure would, so the preserved-artifact policy is
-exercised for real rather than only in tests. The recording is left on disk; it
-tells you where.
+then prints the final state and where the output went. A passing run ends in
+`Completed { output: ... }` and leaves no workspace behind in `/tmp`.
+
+Check for leftovers as well as for the file. A successful encode once leaked its
+recording directory every single time while producing a perfectly correct output
+— nothing failed, so only listing `/tmp` afterwards revealed it.
 
 ## Verifying click-through
 

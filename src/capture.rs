@@ -26,7 +26,7 @@ const GRACEFUL_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 /// Container extension for the intermediate recording.
 ///
 /// Matroska, because it carries ffv1 with `bgr0` without a pixel-format
-/// conversion — verified on this machine with `ffprobe`, which reports
+/// conversion — verified with `ffprobe`, which reports
 /// `codec_name=ffv1, pix_fmt=bgr0` for a captured file. x11grab's native output
 /// *is* `bgr0`, so nothing is converted on the way in and the intermediate is
 /// lossless by construction rather than by assertion (ADR 0002 explicitly refuses

@@ -2,7 +2,6 @@
 
 - **Status:** ACCEPTED
 - **Date:** 2026-08-25
-- **Brain:** mirrors `D-0058`
 
 ## Context
 

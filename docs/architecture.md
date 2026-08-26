@@ -24,7 +24,7 @@ src/geometry.rs   The widget → root-pixel conversion chain, with clipping
 src/session.rs    The recording lifecycle: pure state machine, no I/O
 src/capture.rs    The ffmpeg recorder: owns the child, reaps on every path
 src/worker.rs     Runs the recorder off the UI thread; dropping it reaps
-src/encode.rs     GIF encoding: two-pass palette, atomic commit
+src/encode.rs     GIF and MP4 encoding, and the atomic commit
 src/ui.rs         The framing window: hole, input region, lock/unlock
 ```
 
