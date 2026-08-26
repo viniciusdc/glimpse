@@ -221,6 +221,67 @@ pub fn snapshot_args(cfg: &RecorderConfig, output: &Path) -> Vec<String> {
     ]
 }
 
+/// Remove session directories left behind by Glimpse processes that are gone.
+///
+/// `PR_SET_PDEATHSIG` stops a hard kill from orphaning ffmpeg, but nothing can
+/// remove the workspace on that path — deleting a directory needs code to run,
+/// and on `SIGKILL` none does. So the tidying happens at the next startup
+/// instead, which is the only moment it reliably can.
+///
+/// Only directories matching Glimpse's own naming are considered, and only when
+/// their process id is no longer alive — otherwise a second Glimpse recording
+/// right now would have its workspace deleted out from under it.
+///
+/// Returns how many were removed. Failure is reported and otherwise ignored: not
+/// tidying up is never a reason to refuse to start.
+pub fn sweep_stale_workspaces() -> usize {
+    let me = std::process::id();
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return 0;
+    };
+
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(pid) = stale_workspace_pid(name, me) else {
+            continue;
+        };
+        if process_is_alive(pid) {
+            continue;
+        }
+        match std::fs::remove_dir_all(entry.path()) {
+            Ok(()) => removed += 1,
+            Err(e) => eprintln!("glimpse: could not remove {}: {e}", entry.path().display()),
+        }
+    }
+    removed
+}
+
+/// The pid encoded in a `glimpse-<pid>-<n>` directory name, if it is one and it
+/// is not ours.
+fn stale_workspace_pid(name: &str, own_pid: u32) -> Option<u32> {
+    let rest = name.strip_prefix("glimpse-")?;
+    let (pid, seq) = rest.split_once('-')?;
+    // Both halves must be numeric, so unrelated `glimpse-*` directories — the
+    // encode test's scratch dirs, someone's notes — are left alone.
+    let pid: u32 = pid.parse().ok()?;
+    seq.parse::<u32>().ok()?;
+    (pid != own_pid).then_some(pid)
+}
+
+#[cfg(target_os = "linux")]
+fn process_is_alive(pid: u32) -> bool {
+    std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_is_alive(_pid: u32) -> bool {
+    // Without /proc, assume alive: leaving a directory behind is a much smaller
+    // mistake than deleting a running session's recording.
+    true
+}
+
 /// A running ffmpeg child. Exactly one of these owns the process, and every exit
 /// path from this type waits on it.
 pub struct Recorder {
@@ -369,6 +430,38 @@ impl Drop for Recorder {
         if let Ok(None) = self.child.try_wait() {
             let _ = self.child.kill();
             let _ = self.child.wait();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stale_workspace_pid;
+
+    #[test]
+    fn recognises_our_own_workspace_naming() {
+        assert_eq!(stale_workspace_pid("glimpse-1234-0", 999), Some(1234));
+        assert_eq!(stale_workspace_pid("glimpse-1234-7", 999), Some(1234));
+    }
+
+    #[test]
+    fn never_touches_the_running_process_workspace() {
+        assert_eq!(stale_workspace_pid("glimpse-999-0", 999), None);
+    }
+
+    #[test]
+    fn leaves_unrelated_directories_alone() {
+        // Both halves must be numeric, so these are not ours to delete.
+        for name in [
+            "glimpse-enc-test-4321",
+            "glimpse-demo-abcd",
+            "glimpse",
+            "glimpse-",
+            "glimpse-notes-2026",
+            "not-glimpse-1234-0",
+            "glimpse-12x4-0",
+        ] {
+            assert_eq!(stale_workspace_pid(name, 999), None, "{name}");
         }
     }
 }

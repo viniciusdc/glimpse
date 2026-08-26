@@ -112,3 +112,37 @@ removing it needs code to run and nothing does. That is a few megabytes in `/tmp
 until the system cleans it, rather than a process still writing to a deleted
 directory — a smaller problem than the one it replaced, but not nothing. Sweeping
 stale `glimpse-*` workspaces at startup would close it.
+
+
+---
+
+## Update — encoding can now be cancelled, with one unresolved case
+
+The cost recorded above ("an encode in progress cannot be cancelled") is largely
+closed. `encode_cancellable` polls rather than blocking on `wait`, so a
+`Canceller` can kill the ffmpeg child mid-encode; the session machine already
+modelled `Cancel` during `Encoding`, so only the executor was missing.
+
+Verified: with an encode running, cancelling takes the live ffmpeg count from 1 to
+0, and the source recording is preserved.
+
+**Unresolved, and deliberately written down rather than glossed over.** In the
+end-to-end harness there is a case where the session reports `Cancelled` *and* a
+finished file appears at the destination. The recording is preserved either way,
+so nothing is lost — but the user is told one thing while the filesystem says
+another, and that is a defect.
+
+The obvious explanation is a race: the commit is a rename, so a cancel arriving
+just after it cannot un-write the file. Two attempts to close that window —
+draining pending results before acting on a click, then blocking briefly at cancel
+time to settle the outcome — did not change the observed behaviour, which means
+the explanation is probably wrong and the cause is still unknown.
+
+Reproduce with:
+
+```sh
+GLIMPSE_SELFTEST=cancel-encode GLIMPSE_CANCEL_AFTER_MS=2500 scripts/headless.sh cargo run
+```
+
+Until it is understood, treat "cancelled" as meaning *the recording is safe*,
+not as a guarantee that no output was produced.

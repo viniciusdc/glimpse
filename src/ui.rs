@@ -27,7 +27,7 @@ use std::rc::Rc;
 
 use crate::capture::{RecorderConfig, Workspace};
 use crate::config::{Config, Mode, Theme};
-use crate::encode::OutputFormat;
+use crate::encode::{Canceller, OutputFormat};
 use crate::geometry::{capture_rect, RootPixelRect};
 use crate::session::{transition, CaptureRequest, Effect, Event, State};
 use crate::worker::{FileJob, JobEvent, RecordingWorker, WorkerEvent};
@@ -230,6 +230,9 @@ pub struct FramingWindow {
     worker: RefCell<Option<RecordingWorker>>,
     /// Owns the encode, or the snapshot, while one is running.
     encoder: RefCell<Option<FileJob>>,
+    /// Stops the running encode. Replaced per job; cancelling a finished one is
+    /// harmless.
+    cancel_encode: RefCell<Canceller>,
     /// The current session's workspace.
     ///
     /// Tracked here rather than read back out of the state, because on the happy
@@ -366,7 +369,21 @@ impl FramingWindow {
             theme_menu.append_item(&item);
         }
 
+        let rate_menu = gio::Menu::new();
+        for fps in [10u32, 15, 24, 30] {
+            let item = gio::MenuItem::new(Some(&format!("{fps} fps")), None);
+            item.set_action_and_target_value(
+                Some("win.framerate"),
+                Some(&(fps as i32).to_variant()),
+            );
+            rate_menu.append_item(&item);
+        }
+
         let menu_model = gio::Menu::new();
+        let capture_section = gio::Menu::new();
+        capture_section.append_submenu(Some("Frame rate"), &rate_menu);
+        capture_section.append(Some("Capture pointer"), Some("win.capture-mouse"));
+        menu_model.append_section(None, &capture_section);
         let output_section = gio::Menu::new();
         output_section.append(Some("Save recordings to…"), Some("win.choose-folder"));
         menu_model.append_section(None, &output_section);
@@ -461,6 +478,7 @@ impl FramingWindow {
             state: RefCell::new(State::Idle),
             worker: RefCell::new(None),
             encoder: RefCell::new(None),
+            cancel_encode: RefCell::new(Canceller::new()),
             workspace: RefCell::new(None),
             status: status.clone(),
             record: record.clone(),
@@ -548,6 +566,52 @@ impl FramingWindow {
                 me2.config.borrow_mut().mode = mode;
                 me2.persist();
                 me2.refresh();
+            });
+            window.add_action(&action);
+        }
+
+        {
+            let me2 = me.clone();
+            let rate = me.config.borrow().framerate as i32;
+            let action = gio::SimpleAction::new_stateful(
+                "framerate",
+                Some(glib::VariantTy::INT32),
+                &rate.to_variant(),
+            );
+            action.connect_activate(move |action, value| {
+                let Some(fps) = value.and_then(|v| v.get::<i32>()) else {
+                    return;
+                };
+                if me2.state.borrow().is_active() {
+                    me2.status.set_text("finish the current recording first");
+                    return;
+                }
+                action.set_state(&fps.to_variant());
+                me2.config.borrow_mut().framerate = fps as u32;
+                me2.persist();
+                me2.status.set_text(&format!("recording at {fps} fps"));
+            });
+            window.add_action(&action);
+        }
+
+        {
+            let me2 = me.clone();
+            let on = me.config.borrow().capture_mouse;
+            let action = gio::SimpleAction::new_stateful("capture-mouse", None, &on.to_variant());
+            action.connect_activate(move |action, _| {
+                if me2.state.borrow().is_active() {
+                    me2.status.set_text("finish the current recording first");
+                    return;
+                }
+                let next = !action.state().and_then(|s| s.get::<bool>()).unwrap_or(true);
+                action.set_state(&next.to_variant());
+                me2.config.borrow_mut().capture_mouse = next;
+                me2.persist();
+                me2.status.set_text(if next {
+                    "the pointer will be captured"
+                } else {
+                    "the pointer will not be captured"
+                });
             });
             window.add_action(&action);
         }
@@ -776,6 +840,38 @@ impl FramingWindow {
         // `GLIMPSE_SELFTEST=record` drives a real record/stop cycle through the
         // same code path the button uses, so the wiring is verified end to end
         // rather than only the geometry.
+        // Records, then cancels *during* the encode — the one thing the
+        // deterministic tests cannot show, because they cannot hit the window.
+        if mode == "cancel-encode" {
+            let me = self.clone();
+            glib::timeout_add_seconds_local_once(2, move || {
+                me.on_record_clicked();
+                let me2 = me.clone();
+                glib::timeout_add_seconds_local_once(3, move || {
+                    me2.on_record_clicked(); // Stop
+                    let me3 = me2.clone();
+                    // Fire while the encoder is still working.
+                    glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(400),
+                        move || {
+                            println!("[smoke] state before cancel: {:?}", me3.state());
+                            println!("[smoke] ffmpeg alive: {}", ffmpeg_count());
+                            me3.on_record_clicked(); // Cancel
+                            let me4 = me3.clone();
+                            glib::timeout_add_seconds_local_once(2, move || {
+                                println!("[smoke] state after cancel:  {:?}", me4.state());
+                                println!("[smoke] ffmpeg alive: {}", ffmpeg_count());
+                                println!("[smoke] status: {}", me4.status.text());
+                                if let Some(a) = me4.window.application() {
+                                    a.quit();
+                                }
+                            });
+                        },
+                    );
+                });
+            });
+            return;
+        }
         if mode == "snapshot" {
             let me = self.clone();
             glib::timeout_add_seconds_local_once(2, move || {
@@ -1067,6 +1163,12 @@ impl FramingWindow {
     }
 
     fn on_record_clicked(self: &Rc<Self>) {
+        // A job may have finished between the last driver tick and this click.
+        // Without this, cancelling in that window reports "cancelled" while the
+        // encode has already committed its file — the user is told one thing and
+        // the filesystem says another.
+        self.drain_jobs();
+
         // Snapshot is not a one-frame recording: no session, no lifecycle, no
         // stop. It only makes sense when nothing is in flight.
         if self.mode.get() == Mode::Snapshot && !self.state.borrow().is_active() {
@@ -1102,9 +1204,13 @@ impl FramingWindow {
                 self.dispatch(Event::Armed);
             }
             State::Recording { .. } => self.dispatch(Event::Stop),
+            State::Encoding { .. } => self.cancel_encoding(),
             State::Arming { .. } => self.dispatch(Event::Cancel),
-            State::Stopping { .. } | State::Encoding { .. } => {
-                self.status.set_text("already finishing — one moment");
+            // Stopping is the one uninterruptible window: ffmpeg has been asked
+            // to finalise the container and interrupting that is how you get a
+            // truncated file.
+            State::Stopping { .. } => {
+                self.status.set_text("finishing the file — one moment");
             }
         }
     }
@@ -1161,6 +1267,7 @@ impl FramingWindow {
                 if let Some(w) = self.worker.borrow().as_ref() {
                     w.abort();
                 }
+                self.cancel_encode.borrow().cancel();
                 None
             }
 
@@ -1179,6 +1286,7 @@ impl FramingWindow {
             }
 
             Effect::Cleanup { preserve_source } => {
+                self.cancel_encode.borrow().cancel();
                 // Dropping the worker joins its thread, which guarantees the
                 // child is dead and reaped before anything else happens.
                 self.worker.borrow_mut().take();
@@ -1203,6 +1311,52 @@ impl FramingWindow {
         }
     }
 
+    /// Cancel a running encode and settle the outcome before returning.
+    ///
+    /// The commit is atomic, so an encode either wrote its file or did not — and
+    /// a cancel can arrive in the gap between the rename and the driver noticing.
+    /// Polling for the result here rather than dispatching `Cancel` blind means
+    /// the user is never told "cancelled" about a file that exists.
+    ///
+    /// This does block the UI thread, deliberately and briefly: the job returns
+    /// as soon as it sees the flag, which is within one 25ms poll of `encode`.
+    /// The bound exists so a wedged job degrades to the old behaviour instead of
+    /// freezing the window.
+    fn cancel_encoding(self: &Rc<Self>) {
+        const SETTLE: std::time::Duration = std::time::Duration::from_millis(250);
+        self.cancel_encode.borrow().cancel();
+
+        let deadline = std::time::Instant::now() + SETTLE;
+        while std::time::Instant::now() < deadline {
+            let event = self.encoder.borrow().as_ref().and_then(|w| w.poll());
+            match event {
+                // It had already committed. Cancelling something that finished is
+                // not a cancellation, whatever the button said.
+                Some(JobEvent::Finished(path)) => {
+                    self.dispatch(Event::EncoderFinished(path));
+                    return;
+                }
+                Some(JobEvent::Failed(_)) => break,
+                None => std::thread::sleep(std::time::Duration::from_millis(5)),
+            }
+        }
+        self.dispatch(Event::Cancel);
+    }
+
+    /// Deliver any finished background result immediately, rather than waiting
+    /// for the next driver tick.
+    fn drain_jobs(self: &Rc<Self>) {
+        let job = self.encoder.borrow().as_ref().and_then(|w| w.poll());
+        let Some(event) = job else { return };
+        let snapshotting = matches!(&*self.state.borrow(), State::Idle);
+        match (event, snapshotting) {
+            (JobEvent::Finished(path), true) => self.finish_snapshot(Ok(path)),
+            (JobEvent::Failed(msg), true) => self.finish_snapshot(Err(msg)),
+            (JobEvent::Finished(path), false) => self.dispatch(Event::EncoderFinished(path)),
+            (JobEvent::Failed(msg), false) => self.dispatch(Event::EncoderFailed(msg)),
+        }
+    }
+
     /// Poll the worker, and watch for a frame that moved out from under a live
     /// recording.
     fn install_driver(self: &Rc<Self>) {
@@ -1219,20 +1373,10 @@ impl FramingWindow {
                     }
                 }
 
-                let job = me.encoder.borrow().as_ref().and_then(|w| w.poll());
-                if let Some(e) = job {
-                    // A snapshot has no session, so its result is reported
-                    // directly rather than fed to the state machine.
-                    let snapshotting = matches!(&*me.state.borrow(), State::Idle);
-                    match (e, snapshotting) {
-                        (JobEvent::Finished(path), true) => me.finish_snapshot(Ok(path)),
-                        (JobEvent::Failed(msg), true) => me.finish_snapshot(Err(msg)),
-                        (JobEvent::Finished(path), false) => {
-                            me.dispatch(Event::EncoderFinished(path))
-                        }
-                        (JobEvent::Failed(msg), false) => me.dispatch(Event::EncoderFailed(msg)),
-                    }
-                }
+                // A snapshot has no session, so its result is reported directly
+                // rather than fed to the state machine — `drain_jobs` knows the
+                // difference.
+                me.drain_jobs();
 
                 me.update_size_label();
                 me.tick_elapsed();
@@ -1294,7 +1438,7 @@ impl FramingWindow {
                 "finishing the file…".to_string(),
                 false,
             ),
-            State::Encoding { .. } => ("state-idle", "Stop", "encoding…".to_string(), false),
+            State::Encoding { .. } => ("state-idle", "Cancel", "encoding…".to_string(), true),
             State::Completed { output } => (
                 "state-idle",
                 idle_label,
@@ -1533,4 +1677,14 @@ fn install_resize_edges(window: &gtk::ApplicationWindow, overlay: &gtk::Overlay)
         grip.add_controller(gesture);
         overlay.add_overlay(&grip);
     }
+}
+
+/// Count of live ffmpeg processes, for the cancellation smoke test. `-x` matches
+/// the process name exactly; `-f` would match the harness's own command line.
+fn ffmpeg_count() -> usize {
+    std::process::Command::new("pgrep")
+        .args(["-x", "ffmpeg"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).lines().count())
+        .unwrap_or(0)
 }

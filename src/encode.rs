@@ -21,7 +21,10 @@
 //! So this uses the defaults. A flag that cannot show a benefit does not go in.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 
@@ -154,6 +157,56 @@ pub fn encode_args(source: &Path, palette: &Path, output: &Path) -> Vec<String> 
     ]
 }
 
+/// A handle that can stop an encode that is already running.
+///
+/// ADR 0002 asked for cancellation to be defined separately for capture and
+/// encoding, and [`crate::session`] has modelled it from the start — `Cancel`
+/// while `Encoding` yields `Cancelled` with the source preserved. Until now only
+/// the executor could not honour it: `Command::output` blocks until ffmpeg
+/// decides to finish, so "cancel" meant "wait, then discard".
+///
+/// Cheap to clone; every clone refers to the same encode.
+#[derive(Clone, Default)]
+pub struct Canceller {
+    child: Arc<Mutex<Option<Child>>>,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl Canceller {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Stop the encode. Safe to call at any point, including before it starts and
+    /// after it has finished.
+    ///
+    /// The flag is set first so a process spawned a moment later is still
+    /// stopped, rather than slipping through the gap between the check and the
+    /// kill.
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+        if let Ok(mut slot) = self.child.lock() {
+            if let Some(child) = slot.as_mut() {
+                let _ = child.kill();
+            }
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    fn adopt(&self, child: Child) {
+        if let Ok(mut slot) = self.child.lock() {
+            *slot = Some(child);
+        }
+    }
+
+    fn release(&self) -> Option<Child> {
+        self.child.lock().ok().and_then(|mut slot| slot.take())
+    }
+}
+
 /// Pick a path that does not overwrite anything.
 ///
 /// **Collision policy: never replace, never fail — disambiguate.** Silently
@@ -198,6 +251,16 @@ pub fn free_destination(desired: &Path, exists: impl Fn(&Path) -> bool) -> PathB
 /// On any failure the partial output is removed; `source` is never touched, so a
 /// failed encode costs nothing but time (ADR 0002).
 pub fn encode(source: &Path, destination: &Path, format: OutputFormat) -> Result<PathBuf> {
+    encode_cancellable(source, destination, format, &Canceller::new())
+}
+
+/// As [`encode`], but stoppable through `cancel`.
+pub fn encode_cancellable(
+    source: &Path,
+    destination: &Path,
+    format: OutputFormat,
+    cancel: &Canceller,
+) -> Result<PathBuf> {
     if !source.exists() {
         return Err(anyhow!("no recording at {}", source.display()));
     }
@@ -216,11 +279,11 @@ pub fn encode(source: &Path, destination: &Path, format: OutputFormat) -> Result
     let result = (|| -> Result<()> {
         match format {
             OutputFormat::Gif => {
-                run(&palette_args(source, &palette)).context("generating the palette")?;
-                run(&encode_args(source, &palette, &staged)).context("encoding the GIF")?;
+                run(&palette_args(source, &palette), cancel).context("generating the palette")?;
+                run(&encode_args(source, &palette, &staged), cancel).context("encoding the GIF")?;
             }
             OutputFormat::Mp4 => {
-                run(&mp4_args(source, &staged)).context("encoding the MP4")?;
+                run(&mp4_args(source, &staged), cancel).context("encoding the MP4")?;
             }
         }
         Ok(())
@@ -243,18 +306,70 @@ pub fn encode(source: &Path, destination: &Path, format: OutputFormat) -> Result
     Ok(final_path)
 }
 
-fn run(args: &[String]) -> Result<()> {
-    let out = Command::new("ffmpeg")
-        .args(args)
-        .output()
-        .context("spawning ffmpeg — is it installed?")?;
-    if out.status.success() {
-        return Ok(());
+/// Run ffmpeg to completion, or until cancelled.
+///
+/// Polls rather than blocking on `wait`, because a blocked wait cannot be
+/// interrupted and cancellation would mean "finish, then throw the result away".
+fn run(args: &[String], cancel: &Canceller) -> Result<()> {
+    if cancel.is_cancelled() {
+        return Err(anyhow!("cancelled"));
     }
-    let detail = String::from_utf8_lossy(&out.stderr);
-    Err(anyhow!(
-        "ffmpeg exited with {}: {}",
-        out.status,
-        detail.lines().last().unwrap_or("no stderr")
-    ))
+
+    let child = Command::new("ffmpeg")
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("spawning ffmpeg — is it installed?")?;
+    cancel.adopt(child);
+
+    loop {
+        // Re-check after adopting: `cancel` may have fired between the check
+        // above and the spawn, in which case nothing killed this child.
+        if cancel.is_cancelled() {
+            if let Some(mut child) = cancel.release() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            return Err(anyhow!("cancelled"));
+        }
+
+        let finished = {
+            let mut slot = cancel
+                .child
+                .lock()
+                .map_err(|_| anyhow!("encode state poisoned"))?;
+            match slot.as_mut() {
+                Some(child) => child.try_wait()?,
+                // cancel() took it while we were not looking.
+                None => return Err(anyhow!("cancelled")),
+            }
+        };
+
+        match finished {
+            None => std::thread::sleep(Duration::from_millis(25)),
+            Some(status) if status.success() => {
+                cancel.release();
+                return Ok(());
+            }
+            Some(status) => {
+                let mut child = cancel.release();
+                let detail = child
+                    .as_mut()
+                    .and_then(|c| c.stderr.take())
+                    .map(|mut e| {
+                        use std::io::Read;
+                        let mut buf = String::new();
+                        let _ = e.read_to_string(&mut buf);
+                        buf
+                    })
+                    .unwrap_or_default();
+                return Err(anyhow!(
+                    "ffmpeg exited with {}: {}",
+                    status,
+                    detail.lines().last().unwrap_or("no stderr")
+                ));
+            }
+        }
+    }
 }

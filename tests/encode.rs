@@ -3,7 +3,8 @@
 //! synthesise its own input.
 
 use glimpse::encode::{
-    encode, encode_args, free_destination, mp4_args, palette_args, OutputFormat,
+    encode, encode_args, encode_cancellable, free_destination, mp4_args, palette_args, Canceller,
+    OutputFormat,
 };
 use std::path::{Path, PathBuf};
 
@@ -284,6 +285,115 @@ fn encoding_an_odd_sized_clip_to_mp4_produces_a_playable_file() {
         "height should be cropped to even: {info}"
     );
     assert!(info.contains("yuv420p"), "wrong pixel format: {info}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+// ------------------------------------------------------------- cancellation --
+
+#[test]
+fn a_canceller_that_already_fired_refuses_before_spawning_anything() {
+    if !ffmpeg_available() {
+        eprintln!("skipping: ffmpeg not installed");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("glimpse-cancel-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("source.mkv");
+    std::process::Command::new("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=160x120:rate=10:duration=1",
+            "-c:v",
+            "ffv1",
+        ])
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let cancel = Canceller::new();
+    cancel.cancel();
+    assert!(cancel.is_cancelled());
+
+    let err = encode_cancellable(&source, &dir.join("out.gif"), OutputFormat::Gif, &cancel)
+        .expect_err("a cancelled encode must not succeed");
+    assert!(
+        err.to_string().contains("cancel") || format!("{err:#}").contains("cancel"),
+        "got: {err:#}"
+    );
+
+    // The recording is the expensive thing; cancelling must never cost it.
+    assert!(source.exists(), "source must survive a cancelled encode");
+    assert!(
+        !dir.join("out.gif").exists(),
+        "no partial output should be committed"
+    );
+    let leftovers: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with(".glimpse-"))
+        .collect();
+    assert!(leftovers.is_empty(), "left staging behind: {leftovers:?}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn cancelling_is_safe_before_after_and_twice() {
+    // The UI cancels on every cleanup path, including ones where no encode ever
+    // ran, so this must be inert rather than a panic.
+    let cancel = Canceller::new();
+    assert!(!cancel.is_cancelled());
+    cancel.cancel();
+    cancel.cancel();
+    assert!(cancel.is_cancelled());
+
+    let clone = cancel.clone();
+    clone.cancel();
+    assert!(cancel.is_cancelled(), "clones share one encode");
+}
+
+#[test]
+fn a_fresh_canceller_does_not_block_an_encode() {
+    if !ffmpeg_available() {
+        eprintln!("skipping: ffmpeg not installed");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("glimpse-nocancel-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("source.mkv");
+    std::process::Command::new("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=160x120:rate=10:duration=1",
+            "-c:v",
+            "ffv1",
+        ])
+        .arg(&source)
+        .output()
+        .unwrap();
+
+    let out = encode_cancellable(
+        &source,
+        &dir.join("out.gif"),
+        OutputFormat::Gif,
+        &Canceller::new(),
+    )
+    .expect("an untouched canceller must not interfere");
+    assert_eq!(&std::fs::read(&out).unwrap()[..6], b"GIF89a");
 
     std::fs::remove_dir_all(&dir).ok();
 }

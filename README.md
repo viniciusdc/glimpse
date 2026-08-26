@@ -110,9 +110,8 @@ light, dark, or system-matching theme. Both are remembered.
 The header shows the exact pixel size of the recording area, and a timer while
 recording. The status line at the bottom tells you where the finished file went.
 
-Recording is currently fixed at 15 frames per second with the mouse cursor drawn.
-Both live in the settings file and can be edited by hand, but have no interface
-yet — see [`docs/roadmap.md`](docs/roadmap.md).
+Frame rate and pointer capture are in the header menu too, alongside the output
+folder and the theme. Everything is remembered.
 
 ## Frequently asked questions
 

@@ -93,16 +93,21 @@ one ffmpeg invocation and an atomic rename rather than a one-frame recording —
 it has no session, no lifecycle and nothing to stop
 ([ADR 0009](adr/0009-snapshot.md)).
 
-## Next — the things that make it an application
+## Done — settings interface, stale-workspace sweep, encode cancellation
 
-An interface for framerate and cursor capture; both persist already but can only
-be changed by editing the file.
+Frame rate and pointer capture are in the header menu. Stale `glimpse-*`
+workspaces left by killed processes are removed at startup — only ones whose pid
+is gone, so a second running Glimpse is never touched. Encoding can be cancelled
+mid-flight, with [one unresolved reporting case](adr/0005-gif-encoding-and-the-atomic-commit.md).
+
+## Next — the things that make it an application
 
 The elapsed-time indicator arrived with the UI and is not outstanding.
 
 Also outstanding, from [ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md):
-**an encode in progress cannot be cancelled**, and a process killed mid-encode
-leaves a hidden `.part` file and palette in the destination directory.
+a process killed mid-encode still leaves a hidden `.part` file and palette in the
+destination directory, and cancelling an encode can report `Cancelled` while a
+finished file appears anyway.
 
 ## Deliberately not planned for v0.1
 

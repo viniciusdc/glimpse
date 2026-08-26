@@ -42,6 +42,12 @@ fn main() -> glib::ExitCode {
             }
         };
 
+        // Tidy up after Glimpse processes that were killed before they could.
+        match glimpse::capture::sweep_stale_workspaces() {
+            0 => {}
+            n => eprintln!("glimpse: removed {n} stale workspace(s) from a previous run"),
+        }
+
         let framing_window = ui::FramingWindow::new(app, probe);
         framing_window.window.present();
         *framing_c.borrow_mut() = Some(framing_window);
