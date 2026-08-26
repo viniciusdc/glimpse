@@ -161,8 +161,10 @@ impl Recorder {
             ));
         }
         let output = workspace.video_path();
-        let child = Command::new("ffmpeg")
-            .args(x11grab_args(cfg, &output))
+        let mut command = Command::new("ffmpeg");
+        command.args(x11grab_args(cfg, &output));
+        die_with_parent(&mut command);
+        let child = command
             // stdin stays open: writing `q` to it is the documented way to ask
             // ffmpeg to stop and finalise the container.
             .stdin(Stdio::piped())
@@ -249,6 +251,37 @@ impl Recorder {
         buf.lines().last().unwrap_or("no stderr").to_string()
     }
 }
+
+/// Ask the kernel to kill ffmpeg if Glimpse dies without cleaning up.
+///
+/// `Drop` covers every exit path the process controls, but not `SIGKILL` or an
+/// X server disconnect — and that gap is not theoretical. Killing Glimpse during
+/// development left ffmpeg processes still recording into directories that had
+/// already been deleted.
+///
+/// Gated on **Linux specifically, not `unix`**. `PR_SET_PDEATHSIG` is a Linux
+/// interface; macOS is also `unix` and does not have it, so `cfg(unix)` would
+/// compile there and fail to link.
+///
+/// The signal fires when the *thread* that called `prctl` exits, which is why
+/// this is set in `pre_exec` on the spawning thread: that thread owns the
+/// recorder for the whole recording, so its death really does mean nobody is
+/// left to reap the child.
+#[cfg(target_os = "linux")]
+fn die_with_parent(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: prctl with PR_SET_PDEATHSIG is async-signal-safe and touches only
+    // this process's own kernel state, which is the contract pre_exec requires.
+    unsafe {
+        command.pre_exec(|| {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn die_with_parent(_command: &mut Command) {}
 
 impl Drop for Recorder {
     /// The backstop for "reap on every exit path". If a `Recorder` is dropped

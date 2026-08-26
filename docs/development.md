@@ -89,6 +89,29 @@ compositor:
 Everything else behaves identically: geometry, the input-region hole, recording,
 encoding, collision handling and cleanup.
 
+## Verifying the child dies with the parent
+
+`Drop` covers every exit path the process controls; `SIGKILL` is not one of them.
+ffmpeg is spawned with `PR_SET_PDEATHSIG`, and that is worth re-checking after any
+change to how the recorder is spawned:
+
+```sh
+scripts/headless.sh bash -c '
+  count() { pgrep -x ffmpeg | wc -l; }
+  echo "start:     $(count)"
+  GLIMPSE_SELFTEST=record ./target/debug/glimpse >/dev/null 2>&1 &
+  sleep 4;  echo "recording: $(count)"
+  kill -9 $!
+  sleep 2;  echo "after:     $(count)"'
+```
+
+Expect `0 / 1 / 0`. Use `pgrep -x`, not `pgrep -f` — an `-f` pattern matches the
+test script's own command line and quietly inflates every count, which is how the
+first version of this check reported a surviving process that did not exist.
+
+The session's temp directory does still survive a hard kill; see
+[ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md).
+
 ## Environment variables
 
 Every variable the binary reads, in one place.

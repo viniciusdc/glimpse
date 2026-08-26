@@ -313,6 +313,7 @@ dependencies = [
  "anyhow",
  "gdk4-x11",
  "gtk4",
+ "libc",
  "x11rb",
 ]
 

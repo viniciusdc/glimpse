@@ -87,3 +87,28 @@ failed; the GIF was correct and the temp directory simply stayed.
 It surfaced by listing `/tmp` after a successful run rather than trusting that
 "Completed" meant everything had been cleaned. The controller now tracks the
 workspace itself.
+
+
+---
+
+## Update — the orphaned child is fixed; the workspace still leaks
+
+The cost recorded above ("a hard kill orphans the ffmpeg child and leaks the
+session workspace") was half-closed by asking the kernel for help.
+
+`Recorder::start` now sets `PR_SET_PDEATHSIG` to `SIGKILL` in `pre_exec`, so the
+kernel kills ffmpeg when the thread that spawned it dies — including on `SIGKILL`,
+where no Rust destructor can run. Verified by starting a recording, sending the
+application `SIGKILL`, and counting processes: **0 → 1 while recording → 0 two
+seconds after the kill.**
+
+Gated on `target_os = "linux"` rather than `unix`. `PR_SET_PDEATHSIG` is a Linux
+interface and macOS is also `unix`, so a `cfg(unix)` guard would compile there and
+fail to link. Glimpse is Linux-only today, but the guard should be true rather
+than merely sufficient.
+
+**Still open:** the session's temp directory survives a hard kill, because
+removing it needs code to run and nothing does. That is a few megabytes in `/tmp`
+until the system cleans it, rather than a process still writing to a deleted
+directory — a smaller problem than the one it replaced, but not nothing. Sweeping
+stale `glimpse-*` workspaces at startup would close it.

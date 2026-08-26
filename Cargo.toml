@@ -11,6 +11,10 @@ gdk4-x11 = "0.11"
 x11rb = { version = "0.14", features = ["shape"] }
 anyhow = "1"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Solely for PR_SET_PDEATHSIG — see the spawn in src/capture.rs.
+libc = "0.2"
+
 # gifski dropped from v0.1 per ADR 0002 — revisit only if the ffmpeg GIF output
 # measures poorly. serde/toml return with settings persistence; see docs/roadmap.md.
 
