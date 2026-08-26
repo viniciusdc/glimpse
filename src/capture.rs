@@ -143,6 +143,84 @@ impl Workspace {
     }
 }
 
+/// Grab a single frame of `cfg.rect` and commit it as a PNG.
+///
+/// A snapshot is not a one-frame recording: there is no session, no lifecycle and
+/// nothing to stop. It is one ffmpeg invocation and an atomic rename, so it lives
+/// here rather than going through [`crate::session`].
+///
+/// It does share the two rules that matter: the file is staged in the
+/// destination's own directory and renamed into place, so a reader never sees a
+/// half-written image; and a taken name is disambiguated rather than overwritten
+/// ([ADR 0005](../docs/adr/0005-gif-encoding-and-the-atomic-commit.md)).
+pub fn snapshot(cfg: &RecorderConfig, destination: &Path) -> Result<PathBuf> {
+    if !cfg.rect.is_capturable() {
+        return Err(anyhow!("nothing to capture: {}x{}", cfg.rect.w, cfg.rect.h));
+    }
+    let dir = destination.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+
+    let final_path = crate::encode::free_destination(destination, |p| p.exists());
+    let staged = dir.join(format!(".glimpse-{}-snapshot.png.part", std::process::id()));
+
+    let out = Command::new("ffmpeg")
+        .args(snapshot_args(cfg, &staged))
+        .output()
+        .context("spawning ffmpeg — is it installed?")?;
+
+    if !out.status.success() {
+        let _ = std::fs::remove_file(&staged);
+        let detail = String::from_utf8_lossy(&out.stderr);
+        return Err(anyhow!(
+            "ffmpeg exited with {}: {}",
+            out.status,
+            detail.lines().last().unwrap_or("no stderr")
+        ));
+    }
+
+    std::fs::rename(&staged, &final_path)
+        .with_context(|| format!("committing {}", final_path.display()))?;
+    Ok(final_path)
+}
+
+/// One frame of x11grab, written as a PNG.
+///
+/// Same documented options as the recorder — `-video_size`, `-grab_x`, `-grab_y`,
+/// `-draw_mouse` — with `-frames:v 1` instead of a framerate. The muxer is stated
+/// because the output is staged under a `.part` suffix.
+pub fn snapshot_args(cfg: &RecorderConfig, output: &Path) -> Vec<String> {
+    let s = |v: &str| v.to_string();
+    vec![
+        s("-hide_banner"),
+        s("-loglevel"),
+        s("error"),
+        s("-y"),
+        s("-f"),
+        s("x11grab"),
+        s("-video_size"),
+        cfg.rect.video_size(),
+        s("-draw_mouse"),
+        if cfg.capture_mouse { s("1") } else { s("0") },
+        s("-grab_x"),
+        cfg.rect.x.to_string(),
+        s("-grab_y"),
+        cfg.rect.y.to_string(),
+        s("-i"),
+        cfg.display.clone(),
+        s("-frames:v"),
+        s("1"),
+        // The CODEC must be stated, not just the container. `image2` is a
+        // container whose default encoder is mjpeg, and the staged file is named
+        // `.png.part` so ffmpeg cannot infer anything from the extension — without
+        // this, Glimpse writes a JPEG into a file called .png.
+        s("-c:v"),
+        s("png"),
+        s("-f"),
+        s("image2"),
+        output.to_string_lossy().into_owned(),
+    ]
+}
+
 /// A running ffmpeg child. Exactly one of these owns the process, and every exit
 /// path from this type waits on it.
 pub struct Recorder {

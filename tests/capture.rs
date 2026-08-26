@@ -4,7 +4,7 @@
 //! door of the whole recording pipeline, and every flag in it is a licensing
 //! commitment (ADR 0003 — derived from ffmpeg's docs, not from Peek).
 
-use glimpse::capture::{x11grab_args, RecorderConfig, Workspace};
+use glimpse::capture::{snapshot_args, x11grab_args, RecorderConfig, Workspace};
 use glimpse::geometry::RootPixelRect;
 use std::path::{Path, PathBuf};
 
@@ -25,6 +25,14 @@ fn cfg() -> RecorderConfig {
 /// Value following `flag`, if present.
 fn value_of<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
     let i = args.iter().position(|a| a == flag)?;
+    args.get(i + 1).map(String::as_str)
+}
+
+/// `-f` appears twice: once for the input demuxer and once for the output muxer.
+/// Taking the first would assert on x11grab, which is how this helper's absence
+/// produced a confidently wrong test.
+fn last_value_of<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+    let i = args.iter().rposition(|a| a == flag)?;
     args.get(i + 1).map(String::as_str)
 }
 
@@ -139,4 +147,54 @@ fn the_display_is_read_from_the_environment_never_guessed() {
         &path,
     );
     assert_eq!(value_of(&args, "-i"), Some(":7.1"));
+}
+
+// ----------------------------------------------------------------- snapshot --
+
+#[test]
+fn a_snapshot_states_the_png_codec_not_just_the_container() {
+    // image2 is a container whose default encoder is mjpeg, and the output is
+    // staged as `.png.part` so ffmpeg can infer nothing from the extension.
+    // Without an explicit codec Glimpse writes a JPEG into a file called .png —
+    // which it did, until someone ran `identify` on the result instead of
+    // trusting the filename.
+    let args = snapshot_args(&cfg(), Path::new("/tmp/shot.png"));
+    assert_eq!(value_of(&args, "-c:v"), Some("png"));
+    assert_eq!(last_value_of(&args, "-f"), Some("image2"));
+    assert_eq!(
+        value_of(&args, "-f"),
+        Some("x11grab"),
+        "input demuxer unchanged"
+    );
+}
+
+#[test]
+fn a_snapshot_is_exactly_one_frame() {
+    let args = snapshot_args(&cfg(), Path::new("/tmp/shot.png"));
+    assert_eq!(value_of(&args, "-frames:v"), Some("1"));
+    assert!(
+        !args.iter().any(|a| a == "-framerate"),
+        "a still has no framerate: {args:?}"
+    );
+}
+
+#[test]
+fn a_snapshot_grabs_the_same_region_a_recording_would() {
+    let args = snapshot_args(&cfg(), Path::new("/tmp/shot.png"));
+    assert_eq!(value_of(&args, "-grab_x"), Some("100"));
+    assert_eq!(value_of(&args, "-grab_y"), Some("200"));
+    assert_eq!(value_of(&args, "-video_size"), Some("640x480"));
+    assert_eq!(value_of(&args, "-i"), Some(":0"));
+}
+
+#[test]
+fn the_snapshot_mouse_toggle_follows_the_same_setting() {
+    let without = snapshot_args(
+        &RecorderConfig {
+            capture_mouse: false,
+            ..cfg()
+        },
+        Path::new("/tmp/shot.png"),
+    );
+    assert_eq!(value_of(&without, "-draw_mouse"), Some("0"));
 }

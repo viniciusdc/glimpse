@@ -174,6 +174,13 @@ final path. Staging in the session temp directory would put the rename across
 filesystems, where it degrades to a copy and stops being atomic. A taken
 destination is disambiguated rather than replaced or refused.
 
+## Snapshot
+
+`capture::snapshot` grabs one frame and commits it, without touching `session` —
+there is no lifecycle to model for something with no stop. It reuses the staging
+and collision rules, because those are about not destroying user data rather than
+about recording ([ADR 0009](adr/0009-snapshot.md)).
+
 ## What is not here yet
 
 Output selection and persisted settings. Also: an encode in progress cannot be

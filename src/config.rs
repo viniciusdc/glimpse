@@ -51,10 +51,42 @@ impl Theme {
     }
 }
 
+/// What the primary button does. Remembered, so the one-click path stays the
+/// thing you did last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    #[default]
+    Record,
+    Snapshot,
+}
+
+impl Mode {
+    pub fn all() -> [Mode; 2] {
+        [Mode::Record, Mode::Snapshot]
+    }
+    pub fn id(self) -> &'static str {
+        match self {
+            Mode::Record => "record",
+            Mode::Snapshot => "snapshot",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Mode::Record => "Record",
+            Mode::Snapshot => "Snapshot",
+        }
+    }
+    pub fn from_id(id: &str) -> Option<Mode> {
+        Mode::all().into_iter().find(|m| m.id() == id)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub theme: Theme,
+    pub mode: Mode,
     pub format: OutputFormat,
     /// Directory recordings are written to. The filename is still chosen by
     /// Glimpse, and still disambiguated rather than overwritten.
@@ -67,6 +99,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             theme: Theme::default(),
+            mode: Mode::default(),
             format: OutputFormat::default(),
             output_dir: default_output_dir(),
             framerate: 15,
@@ -160,5 +193,11 @@ impl Config {
     pub fn destination(&self) -> PathBuf {
         self.output_dir
             .join(format!("glimpse.{}", self.format.extension()))
+    }
+
+    /// Where a snapshot goes. Always PNG: a still frame is an image, and the
+    /// recording format has nothing to say about it.
+    pub fn snapshot_destination(&self) -> PathBuf {
+        self.output_dir.join("glimpse.png")
     }
 }

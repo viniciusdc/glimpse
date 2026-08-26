@@ -86,6 +86,13 @@ folder, framerate and cursor capture, written on every change rather than at exi
 ([ADR 0008](adr/0008-settings-and-themes.md)). Three themes — follow system, light
 and dark — with the colours that carry meaning identical across both palettes.
 
+## Done — snapshot
+
+A split button: Record or Snapshot, remembered between sessions. A snapshot is
+one ffmpeg invocation and an atomic rename rather than a one-frame recording —
+it has no session, no lifecycle and nothing to stop
+([ADR 0009](adr/0009-snapshot.md)).
+
 ## Next — the things that make it an application
 
 An interface for framerate and cursor capture; both persist already but can only

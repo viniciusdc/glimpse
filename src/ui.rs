@@ -26,11 +26,11 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::capture::{RecorderConfig, Workspace};
-use crate::config::{Config, Theme};
+use crate::config::{Config, Mode, Theme};
 use crate::encode::OutputFormat;
 use crate::geometry::{capture_rect, RootPixelRect};
 use crate::session::{transition, CaptureRequest, Effect, Event, State};
-use crate::worker::{EncodeEvent, EncodingWorker, RecordingWorker, WorkerEvent};
+use crate::worker::{FileJob, JobEvent, RecordingWorker, WorkerEvent};
 use crate::x11probe::{self, shape_covers, X11Probe};
 
 /// Colours that differ between the light and dark palettes.
@@ -129,6 +129,13 @@ window.glimpse {{ background: transparent; }}
   box-shadow: none;
   text-shadow: none;
 }}
+.glimpse-action-main {{ border-radius: 14px 0 0 14px; padding: 0 12px 0 16px; }}
+.glimpse-action-arrow {{
+  border-radius: 0 14px 14px 0;
+  padding: 0 8px;
+  min-width: 20px;
+  border-left: 1px solid rgba(0,0,0,0.22);
+}}
 .glimpse-action:hover {{ background: #4a97ea; }}
 .glimpse-action:disabled {{ opacity: 0.55; }}
 .state-recording .glimpse-action,
@@ -221,8 +228,8 @@ pub struct FramingWindow {
     state: RefCell<State>,
     /// Owns the ffmpeg child while a recording is live. Dropping it reaps.
     worker: RefCell<Option<RecordingWorker>>,
-    /// Owns the encode while one is running.
-    encoder: RefCell<Option<EncodingWorker>>,
+    /// Owns the encode, or the snapshot, while one is running.
+    encoder: RefCell<Option<FileJob>>,
     /// The current session's workspace.
     ///
     /// Tracked here rather than read back out of the state, because on the happy
@@ -251,6 +258,9 @@ pub struct FramingWindow {
     /// because a screen recorder is the kind of thing people close abruptly.
     config: RefCell<Config>,
     css: gtk::CssProvider,
+    /// What the primary button does when clicked.
+    mode: Cell<Mode>,
+    bullet: gtk::Box,
 }
 
 impl FramingWindow {
@@ -313,7 +323,28 @@ impl FramingWindow {
 
         let record = gtk::Button::builder().child(&record_content).build();
         record.add_css_class("glimpse-action");
+        record.add_css_class("glimpse-action-main");
         record.set_valign(gtk::Align::Center);
+
+        // A split button: one control, two actions. GTK has no SplitButton
+        // outside libadwaita, so it is two widgets in a box that CSS joins into
+        // one pill — the left half acts, the right half chooses what acting means.
+        let mode_menu = gio::Menu::new();
+        for m in Mode::all() {
+            let item = gio::MenuItem::new(Some(m.label()), None);
+            item.set_action_and_target_value(Some("win.mode"), Some(&m.id().to_variant()));
+            mode_menu.append_item(&item);
+        }
+        let mode_button = gtk::MenuButton::builder().menu_model(&mode_menu).build();
+        mode_button.add_css_class("glimpse-action");
+        mode_button.add_css_class("glimpse-action-arrow");
+        mode_button.set_valign(gtk::Align::Center);
+
+        let action_group = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        action_group.add_css_class("glimpse-split");
+        action_group.set_valign(gtk::Align::Center);
+        action_group.append(&record);
+        action_group.append(&mode_button);
 
         let format_menu = gio::Menu::new();
         for f in OutputFormat::all() {
@@ -360,7 +391,7 @@ impl FramingWindow {
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         header.add_css_class("glimpse-header");
         header.append(&meta);
-        header.append(&record);
+        header.append(&action_group);
         header.append(&trailing);
 
         // Dragging the header moves the window; without this an undecorated
@@ -444,6 +475,8 @@ impl FramingWindow {
             last_output: RefCell::new(None),
             format: Cell::new(config.format),
             chip: chip.clone(),
+            mode: Cell::new(config.mode),
+            bullet: bullet.clone(),
             config: RefCell::new(config),
             css: css.clone(),
         });
@@ -487,6 +520,34 @@ impl FramingWindow {
                 me2.config.borrow_mut().theme = theme;
                 me2.apply_theme();
                 me2.persist();
+            });
+            window.add_action(&action);
+        }
+
+        {
+            let me2 = me.clone();
+            let mode = me.mode.get();
+            let action = gio::SimpleAction::new_stateful(
+                "mode",
+                Some(glib::VariantTy::STRING),
+                &mode.id().to_variant(),
+            );
+            action.connect_activate(move |action, value| {
+                let Some(chosen) = value.and_then(|v| v.str().map(str::to_owned)) else {
+                    return;
+                };
+                let Some(mode) = Mode::from_id(&chosen) else {
+                    return;
+                };
+                if me2.state.borrow().is_active() {
+                    me2.status.set_text("finish the current recording first");
+                    return;
+                }
+                action.set_state(&chosen.to_variant());
+                me2.mode.set(mode);
+                me2.config.borrow_mut().mode = mode;
+                me2.persist();
+                me2.refresh();
             });
             window.add_action(&action);
         }
@@ -715,6 +776,22 @@ impl FramingWindow {
         // `GLIMPSE_SELFTEST=record` drives a real record/stop cycle through the
         // same code path the button uses, so the wiring is verified end to end
         // rather than only the geometry.
+        if mode == "snapshot" {
+            let me = self.clone();
+            glib::timeout_add_seconds_local_once(2, move || {
+                println!("[smoke] pressing Snapshot");
+                me.mode.set(Mode::Snapshot);
+                me.on_record_clicked();
+                let me2 = me.clone();
+                glib::timeout_add_seconds_local_once(3, move || {
+                    println!("[smoke] status: {}", me2.status.text());
+                    if let Some(a) = me2.window.application() {
+                        a.quit();
+                    }
+                });
+            });
+            return;
+        }
         if mode == "record" || mode == "record-mp4" {
             if mode == "record-mp4" {
                 self.format.set(OutputFormat::Mp4);
@@ -923,11 +1000,79 @@ impl FramingWindow {
         );
     }
 
+    /// Grab one frame of the current region, off the UI thread.
+    fn take_snapshot(self: &Rc<Self>) {
+        if self.encoder.borrow().is_some() {
+            self.status.set_text("still finishing the last one");
+            return;
+        }
+        let rect = match capture_rect(&self.window, &self.hole, &self.probe) {
+            Ok(r) if r.is_capturable() => r,
+            Ok(r) => {
+                self.status
+                    .set_text(&format!("frame is off-screen ({}x{})", r.w, r.h));
+                return;
+            }
+            Err(e) => {
+                self.status.set_text(&format!("geometry error: {e}"));
+                return;
+            }
+        };
+        let display = match RecorderConfig::display_from_env() {
+            Ok(d) => d,
+            Err(e) => {
+                self.status.set_text(&format!("{e:#}"));
+                return;
+            }
+        };
+
+        let cfg = self.config.borrow();
+        let recorder = RecorderConfig {
+            display,
+            rect,
+            framerate: cfg.framerate,
+            capture_mouse: cfg.capture_mouse,
+        };
+        let destination = cfg.snapshot_destination();
+        drop(cfg);
+
+        self.status.set_text("capturing…");
+        self.record.set_sensitive(false);
+        *self.encoder.borrow_mut() = Some(FileJob::spawn(move || {
+            crate::capture::snapshot(&recorder, &destination)
+        }));
+    }
+
+    fn finish_snapshot(&self, result: Result<PathBuf, String>) {
+        self.encoder.borrow_mut().take();
+        self.record.set_sensitive(true);
+        match result {
+            Ok(path) => {
+                self.status
+                    .set_text(&format!("saved {}", display_path(&path)));
+                *self.last_output.borrow_mut() = Some(path);
+                self.status_dot.set_visible(true);
+                self.reveal.set_visible(true);
+            }
+            Err(e) => {
+                self.status.set_text(&e);
+                self.status_dot.set_visible(false);
+                self.reveal.set_visible(false);
+            }
+        }
+    }
+
     fn state(&self) -> State {
         self.state.borrow().clone()
     }
 
     fn on_record_clicked(self: &Rc<Self>) {
+        // Snapshot is not a one-frame recording: no session, no lifecycle, no
+        // stop. It only makes sense when nothing is in flight.
+        if self.mode.get() == Mode::Snapshot && !self.state.borrow().is_active() {
+            self.take_snapshot();
+            return;
+        }
         match self.state() {
             State::Idle
             | State::Completed { .. }
@@ -1026,11 +1171,10 @@ impl FramingWindow {
                 // The recording is finished and its child is gone; release the
                 // recorder so its workspace is not held open during the encode.
                 self.worker.borrow_mut().take();
-                *self.encoder.borrow_mut() = Some(EncodingWorker::start(
-                    source.path.clone(),
-                    destination,
-                    self.format.get(),
-                ));
+                let (src, format) = (source.path.clone(), self.format.get());
+                *self.encoder.borrow_mut() = Some(FileJob::spawn(move || {
+                    crate::encode::encode(&src, &destination, format)
+                }));
                 None
             }
 
@@ -1075,11 +1219,18 @@ impl FramingWindow {
                     }
                 }
 
-                let encoded = me.encoder.borrow().as_ref().and_then(|w| w.poll());
-                if let Some(e) = encoded {
-                    match e {
-                        EncodeEvent::Finished(path) => me.dispatch(Event::EncoderFinished(path)),
-                        EncodeEvent::Failed(msg) => me.dispatch(Event::EncoderFailed(msg)),
+                let job = me.encoder.borrow().as_ref().and_then(|w| w.poll());
+                if let Some(e) = job {
+                    // A snapshot has no session, so its result is reported
+                    // directly rather than fed to the state machine.
+                    let snapshotting = matches!(&*me.state.borrow(), State::Idle);
+                    match (e, snapshotting) {
+                        (JobEvent::Finished(path), true) => me.finish_snapshot(Ok(path)),
+                        (JobEvent::Failed(msg), true) => me.finish_snapshot(Err(msg)),
+                        (JobEvent::Finished(path), false) => {
+                            me.dispatch(Event::EncoderFinished(path))
+                        }
+                        (JobEvent::Failed(msg), false) => me.dispatch(Event::EncoderFailed(msg)),
                     }
                 }
 
@@ -1123,13 +1274,13 @@ impl FramingWindow {
 
         self.update_size_label();
 
+        let idle_label = self.mode.get().label();
+        let idle_hint = match self.mode.get() {
+            Mode::Record => "Position the frame, then Record.",
+            Mode::Snapshot => "Position the frame, then Snapshot.",
+        };
         let (class, action, status, sensitive) = match &state {
-            State::Idle => (
-                "state-idle",
-                "Record",
-                "Position the frame, then Record.".to_string(),
-                true,
-            ),
+            State::Idle => ("state-idle", idle_label, idle_hint.to_string(), true),
             State::Arming { .. } => ("state-idle", "Cancel", "arming…".to_string(), true),
             State::Recording { request } => (
                 "state-recording",
@@ -1146,7 +1297,7 @@ impl FramingWindow {
             State::Encoding { .. } => ("state-idle", "Stop", "encoding…".to_string(), false),
             State::Completed { output } => (
                 "state-idle",
-                "Record",
+                idle_label,
                 format!("saved {}", display_path(output)),
                 true,
             ),
@@ -1155,19 +1306,28 @@ impl FramingWindow {
                     .as_ref()
                     .map(|v| format!(" — recording kept at {}", v.path.display()))
                     .unwrap_or_default();
-                ("state-aborted", "Record", format!("{error}{kept}"), true)
+                ("state-aborted", idle_label, format!("{error}{kept}"), true)
             }
             State::Cancelled { preserved } => {
                 let kept = preserved
                     .as_ref()
                     .map(|v| format!(" — recording kept at {}", v.path.display()))
                     .unwrap_or_default();
-                ("state-aborted", "Record", format!("cancelled{kept}"), true)
+                (
+                    "state-aborted",
+                    idle_label,
+                    format!("cancelled{kept}"),
+                    true,
+                )
             }
         };
 
         self.shell.add_css_class(class);
         self.record_label.set_text(action);
+        // The bullet is a circle for Record and a square for Stop; a snapshot is
+        // neither, so it gets the camera-shutter ring.
+        self.bullet
+            .set_visible(!matches!(&state, State::Idle) || self.mode.get() == Mode::Record);
         self.record.set_sensitive(sensitive);
         self.status.set_text(&status);
 

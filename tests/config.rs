@@ -1,6 +1,6 @@
 //! Settings persistence. No display and no GTK involved — this is plain data.
 
-use glimpse::config::{Config, Theme};
+use glimpse::config::{Config, Mode, Theme};
 use glimpse::encode::OutputFormat;
 use std::path::PathBuf;
 
@@ -29,6 +29,7 @@ fn settings_survive_a_round_trip() {
     let path = scratch("roundtrip");
     let cfg = Config {
         theme: Theme::Light,
+        mode: Mode::Snapshot,
         format: OutputFormat::Mp4,
         output_dir: PathBuf::from("/home/u/Recordings"),
         framerate: 24,
@@ -92,4 +93,38 @@ fn themes_round_trip_through_their_identifiers() {
         assert_eq!(Theme::from_id(t.id()), Some(t));
     }
     assert_eq!(Theme::from_id("solarized"), None);
+}
+
+#[test]
+fn a_snapshot_is_always_png_whatever_the_recording_format_is() {
+    // A still frame is an image; the recording format has nothing to say about it.
+    let cfg = Config {
+        output_dir: PathBuf::from("/home/u/Videos"),
+        format: OutputFormat::Mp4,
+        ..Config::default()
+    };
+    assert_eq!(
+        cfg.snapshot_destination(),
+        PathBuf::from("/home/u/Videos/glimpse.png")
+    );
+}
+
+#[test]
+fn the_button_remembers_what_it_last_did() {
+    let path = scratch("mode");
+    let cfg = Config {
+        mode: Mode::Snapshot,
+        ..Config::default()
+    };
+    cfg.save_to(&path).unwrap();
+    assert_eq!(Config::load_from(&path).mode, Mode::Snapshot);
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn modes_round_trip_through_their_identifiers() {
+    for m in Mode::all() {
+        assert_eq!(Mode::from_id(m.id()), Some(m));
+    }
+    assert_eq!(Mode::from_id("burst"), None);
 }

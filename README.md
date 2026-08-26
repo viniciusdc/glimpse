@@ -98,7 +98,9 @@ cargo run
 1. Launch Glimpse. Move and resize the window until the hole covers what you want
    to record — drag the header to move it, drag any edge or corner to resize.
 2. Pick **GIF** or **MP4** from the chip in the header.
-3. Press **Record**. Press **Stop** when you are done.
+3. Press **Record**. Press **Stop** when you are done. For a still image instead,
+   choose **Snapshot** from the arrow beside the button — it saves a PNG
+   immediately, with no start and stop.
 4. The file is written to your videos folder as `glimpse.gif` or `glimpse.mp4`.
    An existing file is never overwritten — you get `glimpse-1.gif`, and so on.
 
@@ -162,6 +164,16 @@ Resizing is disabled while recording for the same reason.
 
 No. The captured video is preserved and the status line gives you its path. Only
 the conversion failed, so you can retry from that file with ffmpeg directly.
+
+### What is the arrow next to Record?
+
+It switches the button between **Record** and **Snapshot**. Snapshot grabs a
+single frame of the same region and saves it as a PNG straight away — no timer,
+no stop. The button remembers which you last used, so the common case stays one
+click.
+
+Snapshots are always PNG regardless of the GIF/MP4 setting, because a still frame
+is an image and the recording format has nothing to say about it.
 
 ### Where are my settings stored?
 
@@ -283,6 +295,7 @@ docs/
   - [0006](docs/adr/0006-the-header-is-the-chrome.md) — The header bar is the window chrome
   - [0007](docs/adr/0007-gif-and-mp4.md) — GIF and MP4 as the initial output formats
   - [0008](docs/adr/0008-settings-and-themes.md) — Settings, and what the theme is allowed to change
+  - [0009](docs/adr/0009-snapshot.md) — Snapshot, and why it is not a one-frame recording
 <!-- END GENERATED adr-index -->
 
 ## Licence
