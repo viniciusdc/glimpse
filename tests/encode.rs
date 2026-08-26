@@ -527,3 +527,48 @@ fn an_encode_either_commits_a_file_or_leaves_none_whenever_it_is_cancelled() {
 
     std::fs::remove_dir_all(&root).ok();
 }
+
+#[test]
+fn a_destination_whose_extension_contradicts_the_format_is_refused() {
+    // A stale second copy of the format setting once wrote an MP4 stream into a
+    // file called .gif, and the only sign was the name. The encoder now refuses
+    // rather than producing a file that lies about what is in it.
+    // A real file, so the check under test is reached rather than the earlier
+    // "no recording" guard.
+    let dir = std::env::temp_dir().join(format!("glimpse-ext-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("in.mkv");
+    std::fs::write(&src, b"not really a video, and never read").unwrap();
+
+    let err = encode(
+        &src,
+        &dir.join("out.gif"),
+        OutputFormat::Mp4,
+        &Canceller::new(),
+    )
+    .expect_err("mismatch must be refused");
+    let msg = format!("{err:#}");
+    assert!(msg.contains("does not match format"), "got: {msg}");
+    assert!(msg.contains(".mp4"), "should say what was expected: {msg}");
+    assert!(
+        !dir.join("out.gif").exists(),
+        "a refused encode must not leave a file behind"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_matching_extension_is_accepted_whatever_its_case() {
+    // Refusing .GIF for a GIF would be pedantry rather than safety.
+    let err = encode(
+        Path::new("/nope/missing.mkv"),
+        Path::new("/tmp/out.GIF"),
+        OutputFormat::Gif,
+        &Canceller::new(),
+    )
+    .expect_err("the source is missing, so it still fails");
+    assert!(
+        format!("{err:#}").contains("no recording"),
+        "should fail on the missing source, not the extension: {err:#}"
+    );
+}

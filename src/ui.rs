@@ -350,7 +350,6 @@ pub struct FramingWindow {
     last_output: RefCell<Option<PathBuf>>,
     /// The chosen output format. Fixed for the duration of a session — it is
     /// copied into the `CaptureRequest` at arming time.
-    format: Cell<OutputFormat>,
     /// Persisted user settings. Written on every change rather than on exit,
     /// because a screen recorder is the kind of thing people close abruptly.
     config: RefCell<Config>,
@@ -620,7 +619,6 @@ impl FramingWindow {
             reveal: reveal.clone(),
             started: Cell::new(None),
             last_output: RefCell::new(None),
-            format: Cell::new(config.format),
             chip: chip.clone(),
             rec_label: rec_label.clone(),
             rule: rule.clone(),
@@ -949,8 +947,10 @@ impl FramingWindow {
         }
         if mode == "record" || mode == "record-mp4" {
             if mode == "record-mp4" {
-                self.format.set(OutputFormat::Mp4);
-                self.chip.set_label(OutputFormat::Mp4.label());
+                // Through the config, because that is the only place the format
+                // lives now.
+                self.config.borrow_mut().format = OutputFormat::Mp4;
+                self.chip.set_text(OutputFormat::Mp4.label());
             }
             let me = self.clone();
             glib::timeout_add_seconds_local_once(2, move || {
@@ -1247,7 +1247,7 @@ impl FramingWindow {
                         return;
                     }
                 };
-                let format = self.format.get();
+                let format = self.config.borrow().format;
                 let cfg = self.config.borrow();
                 let request = CaptureRequest {
                     rect,
@@ -1347,7 +1347,7 @@ impl FramingWindow {
                 // The recording is finished and its child is gone; release the
                 // recorder so its workspace is not held open during the encode.
                 self.worker.borrow_mut().take();
-                let (src, format) = (source.path.clone(), self.format.get());
+                let (src, format) = (source.path.clone(), self.config.borrow().format);
                 // The canceller must be the one `cancel_encoding` holds. Calling
                 // the plain `encode` here silently makes the Cancel button
                 // decorative: it fires a canceller wired to nothing, the encode
@@ -1576,7 +1576,7 @@ impl FramingWindow {
             // A still is always PNG, so reporting the recording format here would
             // be reporting something that does not apply.
             Mode::Snapshot => "PNG",
-            Mode::Record => self.format.get().label(),
+            Mode::Record => self.config.borrow().format.label(),
         });
 
         let recording = matches!(state, State::Recording { .. });
@@ -1979,7 +1979,7 @@ impl FramingWindow {
                 None => fmt_first = Some(b.clone()),
                 Some(g) => b.set_group(Some(g)),
             }
-            b.set_active(self.format.get() == f);
+            b.set_active(self.config.borrow().format == f);
             let me = self.clone();
             b.connect_toggled(move |b| {
                 if !b.is_active() {
@@ -1989,7 +1989,6 @@ impl FramingWindow {
                     me.status.set_text("finish the current recording first");
                     return;
                 }
-                me.format.set(f);
                 me.config.borrow_mut().format = f;
                 me.persist();
                 me.refresh();

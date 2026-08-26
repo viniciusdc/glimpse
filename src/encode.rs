@@ -344,6 +344,26 @@ pub fn encode_reporting(
     if !source.exists() {
         return Err(anyhow!("no recording at {}", source.display()));
     }
+    // The destination's extension and the format must agree. They are both
+    // derived from the same setting today, but they were not always: a stale
+    // second copy of the format once wrote an MP4 stream into a file called
+    // .gif, and the only sign was the name. Refuse rather than produce a file
+    // that lies about what is in it.
+    let want = format.extension();
+    match destination.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case(want) => {}
+        other => {
+            return Err(anyhow!(
+                "destination {} does not match format {} (expected .{want}, got {})",
+                destination.display(),
+                format.label(),
+                other
+                    .map(|e| format!(".{e}"))
+                    .unwrap_or_else(|| "no extension".into())
+            ))
+        }
+    }
+
     let dir = destination.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
 
