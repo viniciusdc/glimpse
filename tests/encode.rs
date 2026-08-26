@@ -3,8 +3,7 @@
 //! synthesise its own input.
 
 use glimpse::encode::{
-    encode, encode_args, encode_cancellable, free_destination, mp4_args, palette_args, Canceller,
-    OutputFormat,
+    encode, encode_args, free_destination, mp4_args, palette_args, Canceller, OutputFormat,
 };
 use std::path::{Path, PathBuf};
 
@@ -116,6 +115,7 @@ fn a_missing_recording_is_refused_before_ffmpeg_is_spawned() {
         Path::new("/nope/missing.mkv"),
         Path::new("/tmp/out.gif"),
         OutputFormat::Gif,
+        &Canceller::new(),
     )
     .expect_err("should refuse");
     assert!(err.to_string().contains("no recording"), "got: {err}");
@@ -150,7 +150,13 @@ fn encoding_produces_a_real_gif_and_commits_it_atomically() {
         .unwrap();
     assert!(made.status.success(), "could not synthesise a source clip");
 
-    let out = encode(&source, &dir.join("result.gif"), OutputFormat::Gif).expect("encode");
+    let out = encode(
+        &source,
+        &dir.join("result.gif"),
+        OutputFormat::Gif,
+        &Canceller::new(),
+    )
+    .expect("encode");
     assert_eq!(out, dir.join("result.gif"));
 
     // A real GIF, not an empty file.
@@ -175,7 +181,13 @@ fn encoding_produces_a_real_gif_and_commits_it_atomically() {
     );
 
     // A second encode to the same destination must not replace the first.
-    let again = encode(&source, &dir.join("result.gif"), OutputFormat::Gif).expect("second encode");
+    let again = encode(
+        &source,
+        &dir.join("result.gif"),
+        OutputFormat::Gif,
+        &Canceller::new(),
+    )
+    .expect("second encode");
     assert_eq!(again, dir.join("result-1.gif"));
     assert!(dir.join("result.gif").exists(), "the original must survive");
 
@@ -258,7 +270,13 @@ fn encoding_an_odd_sized_clip_to_mp4_produces_a_playable_file() {
         "could not synthesise an odd-sized clip"
     );
 
-    let out = encode(&source, &dir.join("result.mp4"), OutputFormat::Mp4).expect("mp4 encode");
+    let out = encode(
+        &source,
+        &dir.join("result.mp4"),
+        OutputFormat::Mp4,
+        &Canceller::new(),
+    )
+    .expect("mp4 encode");
     assert!(
         std::fs::metadata(&out).unwrap().len() > 1000,
         "suspiciously small"
@@ -321,7 +339,7 @@ fn a_canceller_that_already_fired_refuses_before_spawning_anything() {
     cancel.cancel();
     assert!(cancel.is_cancelled());
 
-    let err = encode_cancellable(&source, &dir.join("out.gif"), OutputFormat::Gif, &cancel)
+    let err = encode(&source, &dir.join("out.gif"), OutputFormat::Gif, &cancel)
         .expect_err("a cancelled encode must not succeed");
     assert!(
         err.to_string().contains("cancel") || format!("{err:#}").contains("cancel"),
@@ -386,7 +404,7 @@ fn a_fresh_canceller_does_not_block_an_encode() {
         .output()
         .unwrap();
 
-    let out = encode_cancellable(
+    let out = encode(
         &source,
         &dir.join("out.gif"),
         OutputFormat::Gif,
@@ -396,4 +414,116 @@ fn a_fresh_canceller_does_not_block_an_encode() {
     assert_eq!(&std::fs::read(&out).unwrap()[..6], b"GIF89a");
 
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Build a clip big enough that encoding it takes long enough to interrupt.
+fn slow_source(dir: &Path) -> PathBuf {
+    let source = dir.join("slow.mkv");
+    let made = std::process::Command::new("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=1280x720:rate=25:duration=4",
+            "-c:v",
+            "ffv1",
+            "-pix_fmt",
+            "bgr0",
+        ])
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(made.status.success(), "could not synthesise a slow source");
+    source
+}
+
+/// **The invariant that matters, at every point cancellation can land.**
+///
+/// An encode either succeeds and leaves exactly one committed file, or it fails
+/// and leaves none. There is no third outcome — and in particular there is never
+/// a committed file alongside a failure, because that is the shape of the
+/// end-to-end defect recorded in ADR 0005: the session reporting `Cancelled`
+/// while a finished file appears at the destination.
+///
+/// Cancelling at a spread of delays walks the cancel across the whole encode:
+/// before it starts, during palettegen, during paletteuse, and after the commit.
+#[test]
+fn an_encode_either_commits_a_file_or_leaves_none_whenever_it_is_cancelled() {
+    if !ffmpeg_available() {
+        eprintln!("skipping: ffmpeg not installed");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("glimpse-inv-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let source = slow_source(&root);
+
+    for (i, delay_ms) in [0u64, 30, 120, 350, 900, 2500].into_iter().enumerate() {
+        let dir = root.join(format!("run{i}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let destination = dir.join("out.gif");
+
+        let cancel = Canceller::new();
+        let fired = cancel.clone();
+        let handle = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            fired.cancel();
+        });
+
+        let started = std::time::Instant::now();
+        let result = encode(&source, &destination, OutputFormat::Gif, &cancel);
+        let elapsed = started.elapsed();
+        handle.join().unwrap();
+
+        let committed: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        let staging: Vec<_> = committed
+            .iter()
+            .filter(|n| n.starts_with(".glimpse-"))
+            .cloned()
+            .collect();
+        let outputs: Vec<_> = committed
+            .iter()
+            .filter(|n| !n.starts_with(".glimpse-"))
+            .cloned()
+            .collect();
+
+        assert!(
+            staging.is_empty(),
+            "cancel at {delay_ms}ms left staging behind: {staging:?}"
+        );
+
+        // If the cancel landed while the encode was still running, the encode
+        // must not have committed anything — including in the window after the
+        // last ffmpeg pass exits but before the rename, which is where the
+        // original defect lived.
+        if elapsed.as_millis() > delay_ms as u128 {
+            assert!(
+                result.is_err(),
+                "cancel at {delay_ms}ms fired during a {elapsed:?} encode, yet it \
+                 succeeded — cancellation was observed and ignored"
+            );
+        }
+
+        match &result {
+            Ok(path) => assert_eq!(
+                outputs,
+                vec![path.file_name().unwrap().to_string_lossy().into_owned()],
+                "cancel at {delay_ms}ms: success must leave exactly its own output"
+            ),
+            Err(e) => assert!(
+                outputs.is_empty(),
+                "cancel at {delay_ms}ms: FAILED with {e:#} yet committed {outputs:?} — \
+                 this is the ADR 0005 defect reproduced at the library level"
+            ),
+        }
+    }
+
+    std::fs::remove_dir_all(&root).ok();
 }

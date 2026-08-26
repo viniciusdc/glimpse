@@ -250,12 +250,14 @@ pub fn free_destination(desired: &Path, exists: impl Fn(&Path) -> bool) -> PathB
 ///
 /// On any failure the partial output is removed; `source` is never touched, so a
 /// failed encode costs nothing but time (ADR 0002).
-pub fn encode(source: &Path, destination: &Path, format: OutputFormat) -> Result<PathBuf> {
-    encode_cancellable(source, destination, format, &Canceller::new())
-}
-
-/// As [`encode`], but stoppable through `cancel`.
-pub fn encode_cancellable(
+/// There is deliberately no convenience overload that omits `cancel`.
+///
+/// There was one, and the UI called it by accident: the Cancel button then fired
+/// a `Canceller` wired to nothing, the encode ran to completion, and the file was
+/// committed while the session reported `Cancelled`. Requiring the argument makes
+/// that mistake unspellable rather than merely fixed — callers with nothing to
+/// cancel pass `&Canceller::new()` and say so.
+pub fn encode(
     source: &Path,
     destination: &Path,
     format: OutputFormat,
@@ -293,6 +295,16 @@ pub fn encode_cancellable(
     if let Err(e) = result {
         let _ = std::fs::remove_file(&staged);
         return Err(e);
+    }
+
+    // Last chance to honour a cancel. Without this check, a cancellation that
+    // lands after the final ffmpeg pass has already exited still commits the
+    // file: the passes succeeded, so nothing else would look at the flag again,
+    // and the caller is told "cancelled" while the output sits at the
+    // destination. That is exactly the defect recorded in ADR 0005.
+    if cancel.is_cancelled() {
+        let _ = std::fs::remove_file(&staged);
+        return Err(anyhow!("cancelled"));
     }
 
     // The commit. Only now does the destination exist, and it exists whole.

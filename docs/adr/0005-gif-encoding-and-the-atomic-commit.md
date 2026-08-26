@@ -126,23 +126,36 @@ modelled `Cancel` during `Encoding`, so only the executor was missing.
 Verified: with an encode running, cancelling takes the live ffmpeg count from 1 to
 0, and the source recording is preserved.
 
-**Unresolved, and deliberately written down rather than glossed over.** In the
-end-to-end harness there is a case where the session reports `Cancelled` *and* a
-finished file appears at the destination. The recording is preserved either way,
-so nothing is lost — but the user is told one thing while the filesystem says
-another, and that is a defect.
+**The defect recorded here has been found, and it was not a race.**
 
-The obvious explanation is a race: the commit is a rename, so a cancel arriving
-just after it cannot un-write the file. Two attempts to close that window —
-draining pending results before acting on a click, then blocking briefly at cancel
-time to settle the outcome — did not change the observed behaviour, which means
-the explanation is probably wrong and the cause is still unknown.
+The symptom was real: the session reported `Cancelled` while a finished file
+appeared at the destination. The explanation written here first — a cancel
+arriving just after the atomic rename — was wrong, which is why two attempts to
+narrow that window changed nothing.
 
-Reproduce with:
+The actual cause was that the UI called `encode` rather than the cancellable
+variant. The Cancel button fired a `Canceller` connected to nothing; the encode
+ran to completion and committed; and the job's result was discarded when the
+session cleaned up. Every observation followed from that, including the absence
+of any settle or drain event in the trace.
+
+It came from an edit that silently failed to apply — the anchor no longer matched
+after the file had been reformatted — so the code kept calling the old function
+while everything around it was rewritten to assume otherwise.
+
+Two changes, one fixing it and one making it unrepeatable:
+
+- `encode` now checks the cancel flag immediately before the rename. Without that,
+  a cancellation landing after the last ffmpeg pass exits still commits, because
+  nothing would look at the flag again.
+- **The convenience overload that omitted the canceller is gone.** Callers must
+  pass one; those with nothing to cancel pass `&Canceller::new()` and say so.
+  Requiring the argument makes the original mistake unspellable rather than
+  merely fixed.
+
+Verified end to end: cancelling mid-encode now leaves the destination empty and
+the source recording preserved.
 
 ```sh
-GLIMPSE_SELFTEST=cancel-encode GLIMPSE_CANCEL_AFTER_MS=2500 scripts/headless.sh cargo run
+GLIMPSE_TRACE=1 GLIMPSE_SELFTEST=cancel-encode scripts/headless.sh cargo run
 ```
-
-Until it is understood, treat "cancelled" as meaning *the recording is safe*,
-not as a guarantee that no output was produced.

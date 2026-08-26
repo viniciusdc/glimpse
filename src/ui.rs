@@ -1163,6 +1163,7 @@ impl FramingWindow {
     }
 
     fn on_record_clicked(self: &Rc<Self>) {
+        trace(|| format!("click in {}", short_state(&self.state.borrow())));
         // A job may have finished between the last driver tick and this click.
         // Without this, cancelling in that window reports "cancelled" while the
         // encode has already committed its file — the user is told one thing and
@@ -1223,7 +1224,16 @@ impl FramingWindow {
         let mut pending = Some(event);
         while let Some(ev) = pending.take() {
             let current = self.state.borrow().clone();
-            let (next, effect) = transition(current, ev);
+            let (next, effect) = transition(current.clone(), ev.clone());
+            trace(|| {
+                format!(
+                    "{} + {:?} -> {} [{:?}]",
+                    short_state(&current),
+                    ev,
+                    short_state(&next),
+                    effect
+                )
+            });
             *self.state.borrow_mut() = next;
             pending = self.apply(effect);
         }
@@ -1279,8 +1289,15 @@ impl FramingWindow {
                 // recorder so its workspace is not held open during the encode.
                 self.worker.borrow_mut().take();
                 let (src, format) = (source.path.clone(), self.format.get());
+                // The canceller must be the one `cancel_encoding` holds. Calling
+                // the plain `encode` here silently makes the Cancel button
+                // decorative: it fires a canceller wired to nothing, the encode
+                // runs to completion, and the file is committed while the session
+                // reports Cancelled.
+                let canceller = Canceller::new();
+                *self.cancel_encode.borrow_mut() = canceller.clone();
                 *self.encoder.borrow_mut() = Some(FileJob::spawn(move || {
-                    crate::encode::encode(&src, &destination, format)
+                    crate::encode::encode(&src, &destination, format, &canceller)
                 }));
                 None
             }
@@ -1333,10 +1350,14 @@ impl FramingWindow {
                 // It had already committed. Cancelling something that finished is
                 // not a cancellation, whatever the button said.
                 Some(JobEvent::Finished(path)) => {
+                    trace(|| format!("settle: finished {}", path.display()));
                     self.dispatch(Event::EncoderFinished(path));
                     return;
                 }
-                Some(JobEvent::Failed(_)) => break,
+                Some(JobEvent::Failed(m)) => {
+                    trace(|| format!("settle: failed {m}"));
+                    break;
+                }
                 None => std::thread::sleep(std::time::Duration::from_millis(5)),
             }
         }
@@ -1348,6 +1369,7 @@ impl FramingWindow {
     fn drain_jobs(self: &Rc<Self>) {
         let job = self.encoder.borrow().as_ref().and_then(|w| w.poll());
         let Some(event) = job else { return };
+        trace(|| format!("drain: {event:?}"));
         let snapshotting = matches!(&*self.state.borrow(), State::Idle);
         match (event, snapshotting) {
             (JobEvent::Finished(path), true) => self.finish_snapshot(Ok(path)),
@@ -1687,4 +1709,30 @@ fn ffmpeg_count() -> usize {
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).lines().count())
         .unwrap_or(0)
+}
+
+/// `GLIMPSE_TRACE=1` prints every state transition and background result.
+///
+/// Exists because an earlier attempt to debug this by hand added a print that
+/// silently failed to apply, and the missing output was read as evidence about
+/// the program. A trace that is switched on in one place cannot go half-missing.
+fn trace(msg: impl FnOnce() -> String) {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    if *ON.get_or_init(|| std::env::var("GLIMPSE_TRACE").is_ok()) {
+        eprintln!("[trace] {}", msg());
+    }
+}
+
+fn short_state(s: &State) -> &'static str {
+    match s {
+        State::Idle => "Idle",
+        State::Arming { .. } => "Arming",
+        State::Recording { .. } => "Recording",
+        State::Stopping { .. } => "Stopping",
+        State::Encoding { .. } => "Encoding",
+        State::Completed { .. } => "Completed",
+        State::Failed { .. } => "Failed",
+        State::Cancelled { .. } => "Cancelled",
+    }
 }
