@@ -81,9 +81,11 @@ Record → GIF works end to end.
 
 ## Next — the things that make it an application
 
-Output-path selection (collision behaviour is already decided); framerate,
-downsample and capture-mouse settings persisted to `~/.config/glimpse`; an
-elapsed-time indicator while recording.
+Output-path selection (collision behaviour is already decided), and framerate,
+downsample and capture-mouse settings persisted to `~/.config/glimpse` — they are
+currently hard-coded at 15fps with the cursor drawn.
+
+The elapsed-time indicator arrived with the UI and is not outstanding.
 
 Also outstanding, from [ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md):
 **an encode in progress cannot be cancelled**, and a process killed mid-encode

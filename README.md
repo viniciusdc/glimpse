@@ -67,8 +67,9 @@ and "a frame that moves mid-recording aborts" are pinned by tests that need no
 display. **Record → GIF or MP4 works end to end.** The button drives the machine, recording and
 encoding both run off the UI thread, a frame that moves mid-recording aborts, and
 the finished GIF is committed with an atomic same-filesystem rename. What is
-missing is the application furniture: choosing where output goes, persisted
-settings, and an elapsed-time indicator. Order and reasoning in [`docs/roadmap.md`](docs/roadmap.md).
+missing is the application furniture: choosing where output goes, and persisted
+settings — framerate and cursor capture are hard-coded for now. Order and
+reasoning in [`docs/roadmap.md`](docs/roadmap.md).
 
 > There is no screenshot in this README, deliberately. The middle of the window is
 > transparent, so any capture of it publishes whatever happened to be behind it.
