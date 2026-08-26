@@ -92,7 +92,8 @@ cargo run
 ```
 
 `make check-reqs` reports what is missing, and `make` on its own lists every
-target. To install it properly:
+target. `make headless` runs Glimpse on a private X server if you would rather it
+did not appear on yours. To install it properly:
 
 ```sh
 make install                    # ~/.local/bin plus a desktop entry
@@ -157,6 +158,7 @@ tests/
 data/
   glimpse.desktop       Desktop entry, installed by `make install`
 scripts/
+  headless.sh           Runs Glimpse on a private X server, off your screen
   sync-docs.sh          Regenerates the ADR index; fails the build on doc drift
 docs/
   adr/                  Decision records, append-only

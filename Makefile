@@ -54,6 +54,19 @@ fmt-check: ## Fail if formatting is off
 lint: ## Clippy, warnings are errors
 	$(NICE) $(CARGO) clippy $(JOBS) --all-targets -- -D warnings
 
+.PHONY: headless
+headless: ## Run Glimpse on a private X server (never touches your screen)
+	@scripts/headless.sh $(NICE) $(CARGO) run $(JOBS)
+
+.PHONY: selftest-headless
+selftest-headless: ## Geometry + input-region self-test, off-screen
+	@scripts/headless.sh env GLIMPSE_SELFTEST=1 $(NICE) $(CARGO) run $(JOBS)
+
+.PHONY: smoke
+smoke: ## Full record -> GIF and record -> MP4, off-screen
+	@scripts/headless.sh env GLIMPSE_SELFTEST=record $(NICE) $(CARGO) run $(JOBS)
+	@scripts/headless.sh env GLIMPSE_SELFTEST=record-mp4 $(NICE) $(CARGO) run $(JOBS)
+
 .PHONY: selftest
 selftest: ## Verify geometry against a real capture — then LOOK at the PNG
 	GLIMPSE_SELFTEST=1 $(NICE) $(CARGO) run $(JOBS)

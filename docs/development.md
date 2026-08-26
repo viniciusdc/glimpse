@@ -58,6 +58,37 @@ Builds run under `nice -n 19` with `-j 2`, on the assumption that you are using
 the machine for something else while they run. Override `NICE=` and `JOBS=` if
 you would rather they did not.
 
+## Working off-screen
+
+Glimpse is a screen recorder, so testing it naturally means launching windows,
+moving the pointer and grabbing the screen — on the machine someone is using.
+Don't. There is a private X server for that:
+
+```sh
+make headless            # run Glimpse on its own display
+make selftest-headless   # geometry + input region, off-screen
+make smoke               # record -> GIF and record -> MP4, off-screen
+```
+
+`scripts/headless.sh` starts an `Xvfb` on `:99` (override with
+`HEADLESS_DISPLAY`), waits for it to actually accept connections rather than
+sleeping a guessed interval, runs your command against it, and tears it down.
+It refuses to start if that display is already in use.
+
+**What it cannot check**, because Xvfb has neither a window manager nor a
+compositor:
+
+- **Moving and resizing.** `begin_resize` sends `_NET_WM_MOVERESIZE` and there is
+  no window manager to receive it. Resize has to be verified on a real session —
+  and by hand, since a synthetic drag once produced a confident false negative
+  here.
+- **Transparency.** Nothing composites, so the hole shows the root window instead
+  of what is behind Glimpse. Geometry and the input region are still verified
+  exactly, because both are checked against the X server rather than by eye.
+
+Everything else behaves identically: geometry, the input-region hole, recording,
+encoding, collision handling and cleanup.
+
 ## Environment variables
 
 Every variable the binary reads, in one place.

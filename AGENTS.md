@@ -43,6 +43,12 @@ function so the eventual fallback is a single edit.
 grabs whatever the framing window was over. Never attach it to a pull request,
 an issue, or a commit. The README has no screenshot for the same reason.
 
+**Do not test on someone else's screen.** This is a screen recorder: exercising it
+means opening windows, warping the pointer and grabbing the display, on a machine
+somebody is trying to use. `make smoke` and `make headless` run it against a
+private `Xvfb` instead. Only resize, move and transparency genuinely need a real
+session — see [`docs/development.md`](docs/development.md#working-off-screen).
+
 ## Scope discipline
 
 v0.1 is GIF-only, X11-only, ffmpeg-only. Wayland is not a missing backend, it is
