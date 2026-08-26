@@ -26,11 +26,28 @@ make test       # tests only
 
 Three jobs, in parallel, so the wall clock is the slowest one rather than the sum:
 
-| job | needs | why it is separate |
-|---|---|---|
-| **Docs** | nothing | No toolchain, no system libraries — answers in seconds, and doc drift has been this project's largest category of finding |
-| **Format** | rustfmt | Fails in ~15s instead of behind a five-minute compile |
-| **Clippy and tests** | GTK4 headers, ffmpeg | The long pole |
+| job | needs | measured | why it is separate |
+|---|---|---|---|
+| **Docs** | nothing | 5s | No toolchain, no system libraries, and doc drift has been this project's largest category of finding |
+| **Format** | rustfmt | 15s | Fails in seconds rather than behind a compile |
+| **Clippy and tests** | GTK4 headers, ffmpeg | 60s | The long pole |
+
+Those numbers are measured, and two of them are worth knowing.
+
+**The old single job took 46–57s and skipped every ffmpeg test.** The new one takes
+60s *and runs them*, so the comparable figure is "same wall clock, real encoder
+coverage" rather than a slowdown.
+
+**Queueing dominates.** In the run those timings come from, 112s elapsed between
+the run being created and any job starting — nearly twice the work itself. That is
+GitHub-side and not something this repository controls; it is also why a push can
+appear not to have triggered CI at all when it has merely not started yet.
+
+Getting there took two wrong turns worth recording. Splitting the job renamed it,
+and the Rust cache is keyed on job name, so the first run after the split rebuilt
+from cold. And installing ffmpeg unconditionally cost 109s of a 189s job — more
+than clippy and the tests combined — until the step was changed to check what the
+runner already has before paying for it.
 
 **ffmpeg is installed in CI on purpose.** The media tests self-skip when it is
 absent, and CI did not install it for a long time — so every encoding and
