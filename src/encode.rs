@@ -26,7 +26,8 @@ use std::process::Command;
 use anyhow::{anyhow, Context, Result};
 
 /// What a recording is turned into.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum OutputFormat {
     /// Two-pass palette GIF. Universally embeddable, large.
     #[default]

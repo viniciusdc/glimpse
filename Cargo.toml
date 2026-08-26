@@ -6,7 +6,8 @@ description = "Animated GIF screen recorder with a framing window. Rust, GTK4, X
 license = "Apache-2.0"
 
 [dependencies]
-gtk4 = "0.11"
+# v4_10 for FileDialog, which is how the output folder is chosen.
+gtk4 = { version = "0.11", features = ["v4_10"] }
 gdk4-x11 = "0.11"
 x11rb = { version = "0.14", features = ["shape"] }
 anyhow = "1"
@@ -15,7 +16,10 @@ anyhow = "1"
 # Solely for PR_SET_PDEATHSIG — see the spawn in src/capture.rs.
 libc = "0.2"
 
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+
 # gifski dropped from v0.1 per ADR 0002 — revisit only if the ffmpeg GIF output
-# measures poorly. serde/toml return with settings persistence; see docs/roadmap.md.
+# measures poorly.
 
 [workspace]

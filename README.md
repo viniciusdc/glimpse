@@ -65,7 +65,7 @@ Glimpse runs on **X11 only**. See the FAQ for why.
 ### Runtime
 
 - An X11 session
-- GTK4 >= 4.14
+- GTK4 >= 4.10
 - FFmpeg >= 6 (developed against 6.1)
 
 ### Building
@@ -99,15 +99,18 @@ cargo run
    to record — drag the header to move it, drag any edge or corner to resize.
 2. Pick **GIF** or **MP4** from the chip in the header.
 3. Press **Record**. Press **Stop** when you are done.
-4. The file is written to your home directory as `glimpse.gif` or `glimpse.mp4`.
+4. The file is written to your videos folder as `glimpse.gif` or `glimpse.mp4`.
    An existing file is never overwritten — you get `glimpse-1.gif`, and so on.
+
+Use the menu in the header to pick where recordings are saved, and to choose a
+light, dark, or system-matching theme. Both are remembered.
 
 The header shows the exact pixel size of the recording area, and a timer while
 recording. The status line at the bottom tells you where the finished file went.
 
 Recording is currently fixed at 15 frames per second with the mouse cursor drawn.
-Making those configurable, and letting you choose where files go, is the next work
-— see [`docs/roadmap.md`](docs/roadmap.md).
+Both live in the settings file and can be edited by hand, but have no interface
+yet — see [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Frequently asked questions
 
@@ -120,7 +123,9 @@ stacking order.
 
 ### Where does my recording go?
 
-`~/glimpse.gif` or `~/glimpse.mp4`. If that name is taken Glimpse counts up —
+Into your videos folder — `XDG_VIDEOS_DIR` if you have one, otherwise your home
+directory — as `glimpse.gif` or `glimpse.mp4`. Change it with **Save recordings
+to…** in the header menu. If that name is taken Glimpse counts up —
 `glimpse-1.gif`, `glimpse-2.gif` — rather than overwriting a file you might still
 want. The status line names the file it just wrote, and **Show in folder** opens
 it.
@@ -157,6 +162,14 @@ Resizing is disabled while recording for the same reason.
 
 No. The captured video is preserved and the status line gives you its path. Only
 the conversion failed, so you can retry from that file with ffmpeg directly.
+
+### Where are my settings stored?
+
+`~/.config/glimpse/config.toml`. It holds the theme, the output format and
+folder, and the framerate and cursor setting. It is written whenever you change
+something rather than at exit, so a preference survives even if Glimpse is killed.
+If the file is unreadable Glimpse says so and starts with defaults rather than
+refusing to run.
 
 ### Can I record audio, or my webcam, or the whole desktop?
 
@@ -221,6 +234,7 @@ src/
   main.rs               The binary: application entry and shutdown ownership
   x11probe.rs           The X11 boundary — origin, root size, input-shape readback
   geometry.rs           WidgetRect → SurfaceRect → RootPixelRect, with clipping
+  config.rs             Persisted settings: theme, format, output folder
   session.rs            The recording lifecycle: pure state machine, no I/O
   capture.rs            The ffmpeg recorder: owns the child, reaps on every path
   worker.rs             Runs the recorder off the UI thread; dropping it reaps
@@ -234,6 +248,7 @@ tests/
   geometry.rs           Clipping — the part of the chain testable without a display
   session.rs            Lifecycle policy: drift, retry, cancellation, shutdown
   capture.rs            ffmpeg arguments and workspace ownership
+  config.rs             Defaults, round-trip, and surviving a corrupt file
   encode.rs             Collision policy, argument shape, real GIF and MP4 encodes
 data/
   glimpse.desktop       Desktop entry, installed by `make install`
@@ -267,6 +282,7 @@ docs/
   - [0005](docs/adr/0005-gif-encoding-and-the-atomic-commit.md) — GIF encoding, and how the output is committed
   - [0006](docs/adr/0006-the-header-is-the-chrome.md) — The header bar is the window chrome
   - [0007](docs/adr/0007-gif-and-mp4.md) — GIF and MP4 as the initial output formats
+  - [0008](docs/adr/0008-settings-and-themes.md) — Settings, and what the theme is allowed to change
 <!-- END GENERATED adr-index -->
 
 ## Licence

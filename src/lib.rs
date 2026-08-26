@@ -7,6 +7,7 @@
 //! [ADR 0002](../docs/adr/0002-ffmpeg-pipeline-and-session-model.md).
 
 pub mod capture;
+pub mod config;
 pub mod encode;
 pub mod geometry;
 pub mod session;

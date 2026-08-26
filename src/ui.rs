@@ -26,50 +26,98 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::capture::{RecorderConfig, Workspace};
+use crate::config::{Config, Theme};
 use crate::encode::OutputFormat;
 use crate::geometry::{capture_rect, RootPixelRect};
 use crate::session::{transition, CaptureRequest, Effect, Event, State};
 use crate::worker::{EncodeEvent, EncodingWorker, RecordingWorker, WorkerEvent};
 use crate::x11probe::{self, shape_covers, X11Probe};
 
-/// Ported from the `Glimpse Screen Recording UI` design document, tokens kept
-/// verbatim so the app and the mock cannot drift on colour.
-const CSS: &str = r#"
-window.glimpse { background: transparent; }
-
-.glimpse-shell {
-  border-radius: 10px;
-  box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+/// Colours that differ between the light and dark palettes.
+///
+/// The stylesheet itself is written once and the palette substituted in, so the
+/// two themes cannot drift apart structurally — only in colour. The accent and
+/// the recording red are deliberately absent: they are the same in both, because
+/// they carry meaning rather than mood.
+struct Palette {
+    header_bg: &'static str,
+    header_line: &'static str,
+    meta: &'static str,
+    emphasis: &'static str,
+    chip_line: &'static str,
+    hover: &'static str,
+    status_bg: &'static str,
+    link: &'static str,
+    link_hover: &'static str,
+    shadow: &'static str,
 }
 
-/* Header --------------------------------------------------------------- */
-.glimpse-header {
-  background: #282c33;
-  border-bottom: 1px solid rgba(0,0,0,0.4);
+const DARK: Palette = Palette {
+    header_bg: "#282c33",
+    header_line: "rgba(0,0,0,0.4)",
+    meta: "#8b939e",
+    emphasis: "#c3c9d2",
+    chip_line: "rgba(255,255,255,0.14)",
+    hover: "rgba(255,255,255,0.08)",
+    status_bg: "rgba(16,18,22,0.92)",
+    link: "#8ab4f8",
+    link_hover: "#b8d0fb",
+    shadow: "rgba(0,0,0,0.6)",
+};
+
+const LIGHT: Palette = Palette {
+    header_bg: "#e9ecf0",
+    header_line: "rgba(0,0,0,0.14)",
+    meta: "#5c6570",
+    emphasis: "#2f3640",
+    chip_line: "rgba(0,0,0,0.20)",
+    hover: "rgba(0,0,0,0.07)",
+    status_bg: "rgba(247,249,251,0.95)",
+    link: "#0969da",
+    link_hover: "#1a7fe8",
+    shadow: "rgba(0,0,0,0.25)",
+};
+
+/// Ported from the `Glimpse Screen Recording UI` design document; the tokens that
+/// carry meaning — the accent blue, the recording red, the abort amber — are kept
+/// verbatim and are identical in both themes.
+fn stylesheet(p: &Palette) -> String {
+    format!(
+        r#"
+window.glimpse {{ background: transparent; }}
+
+.glimpse-shell {{
+  border-radius: 10px;
+  box-shadow: 0 30px 80px {shadow};
+}}
+
+.glimpse-header {{
+  background: {header_bg};
+  border-bottom: 1px solid {header_line};
   border-radius: 10px 10px 0 0;
   min-height: 44px;
   padding: 0 12px;
-}
-.glimpse-meta {
-  color: #8b939e;
+}}
+.glimpse-meta {{
+  color: {meta};
   font-size: 12px;
   font-feature-settings: "tnum";
-}
-.glimpse-elapsed { color: #c3c9d2; }
-.glimpse-recdot {
+}}
+.glimpse-elapsed {{ color: {emphasis}; }}
+.glimpse-recdot {{
   background: #e04b4b;
   border-radius: 50%;
   min-width: 8px;
   min-height: 8px;
   animation: glimpse-pulse 1.4s ease-in-out infinite;
-}
-@keyframes glimpse-pulse {
-  from { opacity: 1; }
-  50%  { opacity: 0.25; }
-  to   { opacity: 1; }
-}
+}}
+@keyframes glimpse-pulse {{
+  from {{ opacity: 1; }}
+  50%  {{ opacity: 0.25; }}
+  to   {{ opacity: 1; }}
+}}
 
-.glimpse-action {
+.glimpse-action {{
   background: #3689e6;
   color: #ffffff;
   font-size: 12.5px;
@@ -80,75 +128,86 @@ window.glimpse { background: transparent; }
   padding: 0 16px;
   box-shadow: none;
   text-shadow: none;
-}
-.glimpse-action:hover { background: #4a97ea; }
-.glimpse-action:disabled { opacity: 0.55; }
+}}
+.glimpse-action:hover {{ background: #4a97ea; }}
+.glimpse-action:disabled {{ opacity: 0.55; }}
 .state-recording .glimpse-action,
-.state-stopping  .glimpse-action { background: #c6262e; }
-.state-recording .glimpse-action:hover { background: #d2343c; }
+.state-stopping  .glimpse-action {{ background: #c6262e; }}
+.state-recording .glimpse-action:hover {{ background: #d2343c; }}
 
-.glimpse-bullet { background: #ffffff; min-width: 9px; min-height: 9px; border-radius: 50%; }
+.glimpse-bullet {{ background: #ffffff; min-width: 9px; min-height: 9px; border-radius: 50%; }}
 .state-recording .glimpse-bullet,
-.state-stopping  .glimpse-bullet { min-width: 8px; min-height: 8px; border-radius: 0; }
+.state-stopping  .glimpse-bullet {{ min-width: 8px; min-height: 8px; border-radius: 0; }}
 
-.glimpse-chip {
-  color: #a7aeb9;
+.glimpse-chip {{
+  color: {meta};
   font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.6px;
-  border: 1px solid rgba(255,255,255,0.14);
+  border: 1px solid {chip_line};
   border-radius: 5px;
   padding: 2px 7px;
-}
-.glimpse-menu {
-  color: #a7aeb9;
+}}
+.glimpse-menu {{
+  color: {meta};
   background: none;
   border: 0;
   box-shadow: none;
   min-height: 24px;
   min-width: 24px;
   padding: 0;
-}
-.glimpse-menu:hover { background: rgba(255,255,255,0.08); border-radius: 5px; }
-.glimpse-menu > button { padding: 0 4px; min-height: 24px; }
+}}
+.glimpse-menu:hover {{ background: {hover}; border-radius: 5px; }}
+.glimpse-menu > button {{ padding: 0 4px; min-height: 24px; }}
 
-/* The capture region ----------------------------------------------------
-   The border lives on this widget, and the capture target inside it paints
-   nothing — see ADR 0000. Never move this border onto .glimpse-hole. */
-.glimpse-frame { border: 3px solid #3689e6; }
+/* The capture region. The border lives on this widget, and the capture target
+   inside it paints nothing — see ADR 0000. Never move this border onto
+   .glimpse-hole. */
+.glimpse-frame {{ border: 3px solid #3689e6; }}
 .state-recording .glimpse-frame,
-.state-stopping  .glimpse-frame { border-color: #e04b4b; }
-.state-aborted   .glimpse-frame { border-color: #e5a50a; }
-.glimpse-hole { background: transparent; }
+.state-stopping  .glimpse-frame {{ border-color: #e04b4b; }}
+.state-aborted   .glimpse-frame {{ border-color: #e5a50a; }}
+.glimpse-hole {{ background: transparent; }}
 
-/* Status ---------------------------------------------------------------- */
-.glimpse-status {
-  background: rgba(16,18,22,0.9);
+.glimpse-status {{
+  background: {status_bg};
   border-radius: 0 0 10px 10px;
   min-height: 32px;
   padding: 0 14px;
-  color: #8b939e;
+  color: {meta};
   font-size: 11.5px;
-}
-.glimpse-status label { color: #8b939e; font-size: 11.5px; }
-.state-recording .glimpse-status label { color: #d78f8f; font-feature-settings: "tnum"; }
-.state-aborted   .glimpse-status label { color: #e0b45c; }
+}}
+.glimpse-status label {{ color: {meta}; font-size: 11.5px; }}
+.state-recording .glimpse-status label {{ color: #d78f8f; font-feature-settings: "tnum"; }}
+.state-aborted   .glimpse-status label {{ color: #e0b45c; }}
 
-.glimpse-statusdot { min-width: 7px; min-height: 7px; border-radius: 50%; background: #68b3f0; }
-.state-aborted .glimpse-statusdot { background: #e5a50a; }
+.glimpse-statusdot {{ min-width: 7px; min-height: 7px; border-radius: 50%; background: #68b3f0; }}
+.state-aborted .glimpse-statusdot {{ background: #e5a50a; }}
 
-.glimpse-link {
+.glimpse-link {{
   background: none;
   border: 0;
   box-shadow: none;
   padding: 0;
   min-height: 0;
-  color: #8ab4f8;
+  color: {link};
   font-size: 11.5px;
+}}
+.glimpse-link:hover {{ color: {link_hover}; }}
+.glimpse-grip-debug {{ background: rgba(255,0,255,0.6); }}
+"#,
+        shadow = p.shadow,
+        header_bg = p.header_bg,
+        header_line = p.header_line,
+        meta = p.meta,
+        emphasis = p.emphasis,
+        chip_line = p.chip_line,
+        hover = p.hover,
+        status_bg = p.status_bg,
+        link = p.link,
+        link_hover = p.link_hover,
+    )
 }
-.glimpse-link:hover { color: #b8d0fb; }
-.glimpse-grip-debug { background: rgba(255,0,255,0.6); }
-"#;
 
 pub struct FramingWindow {
     pub window: gtk::ApplicationWindow,
@@ -188,12 +247,16 @@ pub struct FramingWindow {
     /// copied into the `CaptureRequest` at arming time.
     format: Cell<OutputFormat>,
     chip: gtk::MenuButton,
+    /// Persisted user settings. Written on every change rather than on exit,
+    /// because a screen recorder is the kind of thing people close abruptly.
+    config: RefCell<Config>,
+    css: gtk::CssProvider,
 }
 
 impl FramingWindow {
     pub fn new(app: &gtk::Application, probe: Rc<X11Probe>) -> Rc<Self> {
+        let config = Config::load();
         let css = gtk::CssProvider::new();
-        css.load_from_data(CSS);
         if let Some(display) = gtk::gdk::Display::default() {
             gtk::style_context_add_provider_for_display(
                 &display,
@@ -259,15 +322,28 @@ impl FramingWindow {
             format_menu.append_item(&item);
         }
         let chip = gtk::MenuButton::builder()
-            .label(OutputFormat::default().label())
+            .label(config.format.label())
             .menu_model(&format_menu)
             .build();
         chip.add_css_class("glimpse-chip");
         chip.set_valign(gtk::Align::Center);
 
+        let theme_menu = gio::Menu::new();
+        for t in Theme::all() {
+            let item = gio::MenuItem::new(Some(t.label()), None);
+            item.set_action_and_target_value(Some("win.theme"), Some(&t.id().to_variant()));
+            theme_menu.append_item(&item);
+        }
+
         let menu_model = gio::Menu::new();
-        menu_model.append(Some("Show capture rect"), Some("win.show-rect"));
-        menu_model.append(Some("Quit"), Some("window.close"));
+        let output_section = gio::Menu::new();
+        output_section.append(Some("Save recordings to…"), Some("win.choose-folder"));
+        menu_model.append_section(None, &output_section);
+        menu_model.append_submenu(Some("Theme"), &theme_menu);
+        let tail = gio::Menu::new();
+        tail.append(Some("Show capture rect"), Some("win.show-rect"));
+        tail.append(Some("Quit"), Some("window.close"));
+        menu_model.append_section(None, &tail);
         let menu = gtk::MenuButton::builder()
             .icon_name("open-menu-symbolic")
             .menu_model(&menu_model)
@@ -366,9 +442,25 @@ impl FramingWindow {
             reveal: reveal.clone(),
             started: Cell::new(None),
             last_output: RefCell::new(None),
-            format: Cell::new(OutputFormat::default()),
+            format: Cell::new(config.format),
             chip: chip.clone(),
+            config: RefCell::new(config),
+            css: css.clone(),
         });
+
+        me.apply_theme();
+        {
+            // Keep following the desktop while the theme is "system". GTK
+            // surfaces the desktop's preference here and updates it live.
+            let me2 = me.clone();
+            if let Some(settings) = gtk::Settings::default() {
+                settings.connect_gtk_application_prefer_dark_theme_notify(move |_| {
+                    if me2.config.borrow().theme == Theme::System {
+                        me2.apply_theme();
+                    }
+                });
+            }
+        }
 
         me.install_input_region_updater();
         me.install_selftest();
@@ -376,6 +468,36 @@ impl FramingWindow {
 
         // Reachable from the header menu; the design has no room for a second
         // button and this is a developer affordance, not a primary action.
+        {
+            let me2 = me.clone();
+            let theme = me.config.borrow().theme;
+            let action = gio::SimpleAction::new_stateful(
+                "theme",
+                Some(glib::VariantTy::STRING),
+                &theme.id().to_variant(),
+            );
+            action.connect_activate(move |action, value| {
+                let Some(chosen) = value.and_then(|v| v.str().map(str::to_owned)) else {
+                    return;
+                };
+                let Some(theme) = Theme::from_id(&chosen) else {
+                    return;
+                };
+                action.set_state(&chosen.to_variant());
+                me2.config.borrow_mut().theme = theme;
+                me2.apply_theme();
+                me2.persist();
+            });
+            window.add_action(&action);
+        }
+
+        {
+            let me2 = me.clone();
+            let action = gio::SimpleAction::new("choose-folder", None);
+            action.connect_activate(move |_, _| me2.choose_output_folder());
+            window.add_action(&action);
+        }
+
         {
             let me2 = me.clone();
             let action = gio::SimpleAction::new("show-rect", None);
@@ -421,6 +543,8 @@ impl FramingWindow {
                 action.set_state(&chosen.to_variant());
                 me2.format.set(format);
                 me2.chip.set_label(format.label());
+                me2.config.borrow_mut().format = format;
+                me2.persist();
             });
             window.add_action(&action);
         }
@@ -728,6 +852,77 @@ fn run_selftest(window: &gtk::ApplicationWindow, hole: &gtk::Box, probe: &X11Pro
 const DRIVER_TICK_MS: u32 = 100;
 
 impl FramingWindow {
+    /// Repaint with the palette the current setting resolves to.
+    ///
+    /// `System` asks GTK for the desktop's dark-mode preference; an explicit
+    /// choice also sets that preference, so GTK's own surfaces — the menu, the
+    /// folder chooser — match rather than fighting the window they came from.
+    fn apply_theme(&self) {
+        let theme = self.config.borrow().theme;
+        let settings = gtk::Settings::default();
+
+        let dark = match theme {
+            Theme::Dark => true,
+            Theme::Light => false,
+            Theme::System => settings
+                .as_ref()
+                .map(|s| s.is_gtk_application_prefer_dark_theme())
+                .unwrap_or(true),
+        };
+
+        if theme != Theme::System {
+            if let Some(s) = &settings {
+                s.set_gtk_application_prefer_dark_theme(dark);
+            }
+        }
+
+        self.css
+            .load_from_data(&stylesheet(if dark { &DARK } else { &LIGHT }));
+    }
+
+    /// Write settings out now rather than at exit: a screen recorder is the kind
+    /// of application people close abruptly, and a preference that only survives
+    /// a clean shutdown is a preference that does not survive.
+    fn persist(&self) {
+        if let Err(e) = self.config.borrow().save() {
+            eprintln!("glimpse: could not save settings: {e}");
+        }
+    }
+
+    /// Ask for a directory to write recordings into. Only the directory is the
+    /// user's choice; Glimpse still names the file, and still disambiguates
+    /// rather than overwriting.
+    fn choose_output_folder(self: &Rc<Self>) {
+        let dialog = gtk::FileDialog::builder()
+            .title("Save recordings to")
+            .accept_label("Select")
+            .build();
+        let current = self.config.borrow().output_dir.clone();
+        if current.is_dir() {
+            dialog.set_initial_folder(Some(&gio::File::for_path(&current)));
+        }
+
+        let me = self.clone();
+        dialog.select_folder(
+            Some(&self.window),
+            None::<&gio::Cancellable>,
+            move |result| match result {
+                Ok(file) => {
+                    let Some(path) = file.path() else { return };
+                    me.config.borrow_mut().output_dir = path.clone();
+                    me.persist();
+                    me.status.set_text(&format!(
+                        "recordings will be saved to {}",
+                        display_path(&path)
+                    ));
+                }
+                // Cancelling is not an error worth reporting.
+                Err(e) if e.matches(gtk::DialogError::Dismissed) => {}
+                Err(e) => me.status.set_text(&format!("could not set folder: {e}")),
+            },
+        );
+    }
+
     fn state(&self) -> State {
         self.state.borrow().clone()
     }
@@ -746,13 +941,15 @@ impl FramingWindow {
                     }
                 };
                 let format = self.format.get();
+                let cfg = self.config.borrow();
                 let request = CaptureRequest {
                     rect,
-                    framerate: 15,
-                    capture_mouse: true,
-                    destination: default_destination(format),
+                    framerate: cfg.framerate,
+                    capture_mouse: cfg.capture_mouse,
+                    destination: cfg.destination(),
                     format,
                 };
+                drop(cfg);
                 self.dispatch(Event::Arm(request));
                 // Geometry is snapshotted and the window is fixed, so arming is
                 // complete. A settling delay belongs here once resizing is
@@ -1040,15 +1237,6 @@ fn display_path(p: &std::path::Path) -> String {
         }
         _ => text,
     }
-}
-
-/// Where a finished recording goes until output selection exists.
-///
-/// Collision policy is deliberately not decided here — it belongs with the
-/// encoding milestone, because it governs the atomic commit.
-fn default_destination(format: OutputFormat) -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    std::path::PathBuf::from(home).join(format!("glimpse.{}", format.extension()))
 }
 
 /// Thickness of the invisible grab strips along each edge, in logical pixels.

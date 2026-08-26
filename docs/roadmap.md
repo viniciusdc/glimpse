@@ -79,11 +79,17 @@ disambiguated (`glimpse-1.gif`) rather than replaced or refused.
 
 Record → GIF works end to end.
 
+## Done — settings and themes
+
+`src/config.rs` and `~/.config/glimpse/config.toml`: theme, output format, output
+folder, framerate and cursor capture, written on every change rather than at exit
+([ADR 0008](adr/0008-settings-and-themes.md)). Three themes — follow system, light
+and dark — with the colours that carry meaning identical across both palettes.
+
 ## Next — the things that make it an application
 
-Output-path selection (collision behaviour is already decided), and framerate,
-downsample and capture-mouse settings persisted to `~/.config/glimpse` — they are
-currently hard-coded at 15fps with the cursor drawn.
+An interface for framerate and cursor capture; both persist already but can only
+be changed by editing the file.
 
 The elapsed-time indicator arrived with the UI and is not outstanding.
 

@@ -21,6 +21,7 @@ src/lib.rs        Library surface, so geometry is testable without a display
 src/main.rs       The binary: application entry only
 src/x11probe.rs   Direct X queries — window origin, root size, input-shape readback
 src/geometry.rs   The widget → root-pixel conversion chain, with clipping
+src/config.rs     Persisted settings: theme, format, output folder
 src/session.rs    The recording lifecycle: pure state machine, no I/O
 src/capture.rs    The ffmpeg recorder: owns the child, reaps on every path
 src/worker.rs     Runs the recorder off the UI thread; dropping it reaps
@@ -133,6 +134,12 @@ dot, elapsed timer), saved (path plus "Show in folder"), aborted (amber, with
 where the preserved recording went).
 
 `GLIMPSE_DECORATIONS=server` restores window-manager decorations.
+
+The stylesheet is written once with a palette substituted in, so the light and
+dark themes cannot drift structurally. The accent blue, the recording red and the
+abort amber are identical in both: they carry meaning rather than mood, and a
+theme that recoloured them would make the window prettier and less truthful
+([ADR 0008](adr/0008-settings-and-themes.md)).
 
 ## Driving it
 
