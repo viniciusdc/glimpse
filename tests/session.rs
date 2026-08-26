@@ -289,3 +289,69 @@ fn the_format_is_fixed_at_arming_and_carried_through_the_session() {
     );
     assert_eq!(effect, Effect::StartRecorder(mp4));
 }
+
+#[test]
+fn a_preserved_capture_can_be_encoded_again_without_recording_again() {
+    // The reason the capture is preserved at all: a failed encode should cost
+    // time, not the recording.
+    let failed = State::Failed {
+        error: "palettegen exited 1".into(),
+        retryable: Some(video()),
+    };
+    let (state, effect) = transition(
+        failed,
+        Event::Retry {
+            destination: PathBuf::from("/home/u/out.gif"),
+        },
+    );
+    assert_eq!(
+        state,
+        State::Encoding {
+            source: video(),
+            destination: PathBuf::from("/home/u/out.gif")
+        }
+    );
+    assert_eq!(
+        effect,
+        Effect::StartEncoder {
+            source: video(),
+            destination: PathBuf::from("/home/u/out.gif")
+        }
+    );
+}
+
+#[test]
+fn retry_uses_the_destination_it_is_given_not_the_one_from_before() {
+    // Output settings can change between the failure and the retry.
+    let cancelled = State::Cancelled {
+        preserved: Some(video()),
+    };
+    let (state, _) = transition(
+        cancelled,
+        Event::Retry {
+            destination: PathBuf::from("/elsewhere/out.mp4"),
+        },
+    );
+    match state {
+        State::Encoding { destination, .. } => {
+            assert_eq!(destination, PathBuf::from("/elsewhere/out.mp4"))
+        }
+        other => panic!("expected Encoding, got {other:?}"),
+    }
+}
+
+#[test]
+fn there_is_nothing_to_retry_without_a_preserved_capture() {
+    let failed = State::Failed {
+        error: "gone".into(),
+        retryable: None,
+    };
+    let (state, effect) = transition(
+        failed.clone(),
+        Event::Retry {
+            destination: PathBuf::from("/home/u/out.gif"),
+        },
+    );
+    assert_eq!(state, failed, "must stay put");
+    assert_eq!(effect, Effect::None);
+}

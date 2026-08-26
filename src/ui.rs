@@ -365,6 +365,7 @@ pub struct FramingWindow {
     sheet_title: gtk::Label,
     sheet_path: gtk::Label,
     reveal_sheet: gtk::Button,
+    retry: gtk::Button,
     status_bar: gtk::Box,
 }
 
@@ -569,9 +570,15 @@ impl FramingWindow {
         reveal_sheet.add_css_class("glimpse-sheet-button");
         reveal_sheet.set_valign(gtk::Align::Center);
 
+        let retry = gtk::Button::with_label("Encode Anyway");
+        retry.add_css_class("glimpse-sheet-button");
+        retry.set_valign(gtk::Align::Center);
+        retry.set_visible(false);
+
         let sheet_actions = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         sheet_actions.set_valign(gtk::Align::Center);
         sheet_actions.append(&copy_path);
+        sheet_actions.append(&retry);
         sheet_actions.append(&reveal_sheet);
 
         let sheet = gtk::Box::new(gtk::Orientation::Horizontal, 12);
@@ -627,12 +634,35 @@ impl FramingWindow {
             sheet_title: sheet_title.clone(),
             sheet_path: sheet_path.clone(),
             reveal_sheet: reveal_sheet.clone(),
+            retry: retry.clone(),
             status_bar: status_bar.clone(),
             mode: Cell::new(config.mode),
             bullet: bullet.clone(),
             config: RefCell::new(config),
             css: css.clone(),
         });
+
+        {
+            // Esc stops a recording and Print Screen takes a snapshot. Both are
+            // advertised in the status strip, so they have to exist.
+            let me2 = me.clone();
+            let keys = gtk::EventControllerKey::new();
+            keys.connect_key_pressed(move |_, key, _, _| {
+                use gtk::gdk::Key;
+                match key {
+                    Key::Escape if matches!(&*me2.state.borrow(), State::Recording { .. }) => {
+                        me2.dispatch(Event::Stop);
+                        glib::Propagation::Stop
+                    }
+                    Key::Print if !me2.state.borrow().is_active() => {
+                        me2.take_snapshot();
+                        glib::Propagation::Stop
+                    }
+                    _ => glib::Propagation::Proceed,
+                }
+            });
+            me.window.add_controller(keys);
+        }
 
         me.build_settings(&settings);
         me.apply_theme();
@@ -729,6 +759,14 @@ impl FramingWindow {
         {
             let me2 = me.clone();
             reveal_sheet.connect_clicked(move |_| me2.open_containing_folder());
+        }
+
+        {
+            let me2 = me.clone();
+            retry.connect_clicked(move |_| {
+                let destination = me2.config.borrow().destination();
+                me2.dispatch(Event::Retry { destination });
+            });
         }
 
         {
@@ -925,6 +963,52 @@ impl FramingWindow {
                             });
                         },
                     );
+                });
+            });
+            return;
+        }
+        // Cancel an encode, then press Encode Anyway and check a file appears.
+        //
+        // Waits for each state rather than sleeping a guessed interval — the
+        // first attempt at this cancelled during Stopping, because how long
+        // ffmpeg takes to finalise a container is not something to hardcode.
+        if mode == "retry" {
+            let me = self.clone();
+            glib::timeout_add_seconds_local_once(2, move || {
+                me.on_record_clicked(); // Record
+                let m = me.clone();
+                glib::timeout_add_seconds_local_once(3, move || {
+                    m.on_record_clicked(); // Stop
+                    let m2 = m.clone();
+                    // poll until the encode is actually running
+                    let ticks = std::cell::Cell::new(0);
+                    glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                        ticks.set(ticks.get() + 1);
+                        let encoding = matches!(&*m2.state.borrow(), State::Encoding { .. });
+                        if !encoding && ticks.get() < 100 {
+                            return glib::ControlFlow::Continue;
+                        }
+                        println!(
+                            "[smoke] reached {:?} after {} ticks",
+                            m2.state(),
+                            ticks.get()
+                        );
+                        m2.on_record_clicked(); // Cancel
+                        println!("[smoke] after cancel: {:?}", m2.state());
+                        println!("[smoke] retry visible: {}", m2.retry.is_visible());
+                        let m3 = m2.clone();
+                        glib::timeout_add_seconds_local_once(1, move || {
+                            m3.retry.emit_clicked();
+                            let m4 = m3.clone();
+                            glib::timeout_add_seconds_local_once(5, move || {
+                                println!("[smoke] after retry: {:?}", m4.state());
+                                if let Some(a) = m4.window.application() {
+                                    a.quit();
+                                }
+                            });
+                        });
+                        glib::ControlFlow::Break
+                    });
                 });
             });
             return;
@@ -1474,8 +1558,15 @@ impl FramingWindow {
                         // ffmpeg has reported; show how far.
                         Some(f) => {
                             me.progress.set_fraction(f);
-                            me.status
-                                .set_text(&format!("Encoding {}%", (f * 100.0).round() as u32));
+                            // Below the handover the GIF encoder is still
+                            // building its palette, which is worth naming: it is
+                            // the slow half and it looks like nothing happening.
+                            let gif = me.config.borrow().format == OutputFormat::Gif;
+                            me.status.set_text(&if gif && f < 0.35 {
+                                "Quantising palette · 256 colours".to_string()
+                            } else {
+                                format!("Encoding {}%", (f * 100.0).round() as u32)
+                            });
                         }
                         // Nothing reported yet — pulse rather than sit at zero,
                         // which would claim no progress rather than no answer.
@@ -1523,7 +1614,7 @@ impl FramingWindow {
         let idle_label = self.mode.get().label();
         let idle_hint = match self.mode.get() {
             Mode::Record => "Position the frame, then Record.",
-            Mode::Snapshot => "Position the frame, then Snapshot.",
+            Mode::Snapshot => "One still frame, saved as PNG. · Print Screen",
         };
         let (class, action, status, sensitive) = match &state {
             State::Idle => ("state-idle", idle_label, idle_hint.to_string(), true),
@@ -1531,7 +1622,15 @@ impl FramingWindow {
             State::Recording { request } => (
                 "state-recording",
                 "Stop",
-                format!("recording {} × {}", request.rect.w, request.rect.h),
+                format!(
+                    "{} fps · pointer {} · Esc to stop",
+                    request.framerate,
+                    if request.capture_mouse {
+                        "captured"
+                    } else {
+                        "hidden"
+                    }
+                ),
                 true,
             ),
             State::Stopping { .. } => (
@@ -1635,6 +1734,8 @@ impl FramingWindow {
                     .set_text(sheet_path.as_deref().unwrap_or(""));
                 self.sheet_path.set_visible(sheet_path.is_some());
                 self.reveal_sheet.set_visible(offer_reveal);
+                self.retry
+                    .set_visible(self.state.borrow().retryable().is_some());
                 self.sheet.set_visible(true);
                 self.status_bar.set_visible(false);
             }

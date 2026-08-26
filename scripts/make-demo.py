@@ -57,7 +57,7 @@ CODE = [
     ("    ranked = sorted(hist.items(), key=lambda kv: -kv[1])", "txt"),
     ("    return [c for c, _ in ranked[:colors]]", "kw"),
     ("", "txt"),
-    ("def encode(src: Path, out: Path, fps=18):", "fn"),
+    ("def encode(src: Path, out: Path, fps=15):", "fn"),
     ('    args = ["ffmpeg", "-i", str(src), "-vf",', "str"),
     ('            f"fps={fps},split[a][b]", str(out)]', "str"),
     ("    proc = subprocess.run(args, capture_output=True)", "txt"),
@@ -139,8 +139,8 @@ def scene(t):
         s["popover"] = True
     elif 5.0 <= t < 12.0:
         s.update(phase="recording", accent="#e04b4b", timer=clock(t - 5),
-                 status="18 fps · pointer captured · Esc to stop",
-                 shell="capturing frame %d…" % int((t - 5) * 18))
+                 status="15 fps · pointer captured · Esc to stop",
+                 shell="capturing frame %d…" % int((t - 5) * 15))
     elif 12.0 <= t < 15.4:
         u = (t - 12) / 3.4
         s.update(phase="encoding", progress=u,
@@ -171,8 +171,8 @@ def scene(t):
                  status="One still frame, saved as PNG.", status_right="Print Screen")
     elif 28.0 <= t < 31.0:
         s.update(phase="recording", accent="#e04b4b", timer=clock(t - 28),
-                 status="18 fps · pointer captured · Esc to stop",
-                 shell="capturing frame %d…" % int((t - 28) * 18))
+                 status="15 fps · pointer captured · Esc to stop",
+                 shell="capturing frame %d…" % int((t - 28) * 15))
         if t >= 30.4:
             u = min(1.0, (t - 30.4) / 0.45)
             s["off"] = (46 * ease(u), -22 * ease(u))

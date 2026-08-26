@@ -48,8 +48,12 @@ Resizing is disabled while recording for the same reason.
 
 ## Encoding failed. Did I lose the recording?
 
-No. The captured video is preserved and the status line gives you its path. Only
-the conversion failed, so you can retry from that file with ffmpeg directly.
+No. The capture is preserved, its path is shown, and **Encode Anyway** on the
+result panel converts it again without re-recording — that is the whole reason
+the capture is kept. Cancelling an encode leaves the same offer.
+
+If you would rather do it yourself, the preserved file is an ffv1 Matroska and
+any tool will read it.
 
 ## What is the arrow next to Record?
 
@@ -75,6 +79,11 @@ by itself.
 What it does not guarantee: releases are not signed, and the checksum comes from
 the same host as the tarball — so a compromise of that host defeats both. If that
 matters for your threat model, build from source.
+
+## Are there keyboard shortcuts?
+
+Two: **Esc** stops a recording, and **Print Screen** takes a snapshot when
+nothing is in flight. Both are named in the status strip while they apply.
 
 ## Where are my settings stored?
 

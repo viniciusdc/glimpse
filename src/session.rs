@@ -102,6 +102,12 @@ pub enum Event {
     RecorderFailed(String),
     EncoderFinished(PathBuf),
     EncoderFailed(String),
+    /// Encode the preserved capture again, without re-recording. Carries the
+    /// destination because the machine holds no settings — the caller knows
+    /// where output goes now, which may differ from where it would have gone.
+    Retry {
+        destination: PathBuf,
+    },
     /// The application is going down. Nothing may outlive this.
     Shutdown,
 }
@@ -289,6 +295,32 @@ pub fn transition(state: State, event: Event) -> (State, Effect) {
             },
             Effect::Cleanup {
                 preserve_source: true,
+            },
+        ),
+
+        // ---- retry --------------------------------------------------------
+        // The whole point of preserving the capture: a failed or cancelled
+        // encode can be re-run without asking the user to record again.
+        (
+            S::Failed {
+                retryable: Some(video),
+                ..
+            },
+            E::Retry { destination },
+        )
+        | (
+            S::Cancelled {
+                preserved: Some(video),
+            },
+            E::Retry { destination },
+        ) => (
+            S::Encoding {
+                source: video.clone(),
+                destination: destination.clone(),
+            },
+            Effect::StartEncoder {
+                source: video,
+                destination,
             },
         ),
 

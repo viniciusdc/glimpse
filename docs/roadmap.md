@@ -104,7 +104,9 @@ mid-flight: the destination is left untouched and the source recording preserved
 
 Settings popover, read-only format chip, result sheet with the full path and real
 buttons, three recording cues, and a determinate encode progress bar driven by
-ffmpeg's own `-progress` output.
+ffmpeg's own `-progress` output. **Encode Anyway** re-encodes a preserved capture
+without re-recording, and Esc and Print Screen do what the status strip says they
+do.
 
 ## Next — the things that make it an application
 

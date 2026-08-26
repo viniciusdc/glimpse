@@ -118,9 +118,9 @@ cargo run
 1. Launch Glimpse. Move and resize the window until the hole covers what you want
    to record — drag the header to move it, drag any edge or corner to resize.
 2. Pick **GIF** or **MP4** from the chip in the header.
-3. Press **Record**. Press **Stop** when you are done. For a still image instead,
-   choose **Snapshot** from the arrow beside the button — it saves a PNG
-   immediately, with no start and stop.
+3. Press **Record**, then **Stop** — or **Esc**. For a still image instead,
+   choose **Snapshot** from the arrow beside the button, or press **Print
+   Screen**; it saves a PNG immediately, with no start and stop.
 4. The file is written to your videos folder as `glimpse.gif` or `glimpse.mp4`.
    An existing file is never overwritten — you get `glimpse-1.gif`, and so on.
 
