@@ -23,6 +23,13 @@
 
 Simple screen recorder for a region of your screen, with an easy to use interface.
 
+> The design was inspired by the now-deprecated
+> [Peek](https://github.com/phw/peek), which got all the fundamentals right but
+> unfortunately could not be maintained any longer. While looking for a
+> replacement I found that none of the available tools were quite like what I
+> liked about it, so I decided to build Glimpse — an independent implementation
+> in Rust on GTK4 that solves a similar problem, and contains none of Peek's code.
+
 ## About
 
 Glimpse makes it easy to create short screencasts of a screen area. You place the
@@ -40,10 +47,6 @@ Glimpse is **not** a general purpose screencast application. It records one regi
 of one screen, silently, to one file. There is no audio, no webcam, no editing, no
 streaming, and no full-desktop or multi-monitor capture. If you need those, use
 OBS.
-
-The design is [Peek](https://github.com/phw/peek)'s, which got it right, and which
-is now deprecated. Glimpse is an independent implementation in Rust on GTK4 and
-contains none of Peek's code.
 
 Glimpse runs on **X11 only**. See the FAQ for why.
 
@@ -162,11 +165,20 @@ Glimpse checks which display backend GTK actually chose at startup and exits wit
 an explanation rather than running and misbehaving. Note that having `DISPLAY` set
 is not enough to be on X11 — under Wayland, XWayland usually answers it too.
 
-### Why is there no screenshot of the app in this README?
+### Is that animation a real recording?
 
-Because the middle of the window is transparent, any capture of Glimpse also
-publishes whatever happened to be behind it at the time. The banner above is an
-illustration for that reason.
+No, and it says so under the image. It is drawn frame by frame by
+[`scripts/make-demo.py`](scripts/make-demo.py) — though it is assembled into a GIF
+by Glimpse's own pipeline, an ffv1 intermediate and then `palettegen`/`paletteuse`,
+so the file itself is produced exactly the way a real recording would be.
+
+There is no real screen capture in this README for two reasons. The middle of the
+Glimpse window is transparent, so any genuine capture of it also publishes
+whatever happened to be behind it. And the headless X server used for automated
+testing has no compositor, so on it the transparency would not composite and the
+hole — the one thing worth showing — would come out black.
+
+Run `make demo` to regenerate the animation.
 
 ## Contributing
 
@@ -217,6 +229,7 @@ data/
   glimpse.desktop       Desktop entry, installed by `make install`
 scripts/
   headless.sh           Runs Glimpse on a private X server, off your screen
+  make-demo.py          Draws the README animation, frame by frame
   sync-docs.sh          Regenerates the ADR index; fails the build on doc drift
 docs/
   adr/                  Decision records, append-only

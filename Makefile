@@ -79,6 +79,10 @@ docs: ## Build the API documentation
 	$(NICE) $(CARGO) doc $(JOBS) --no-deps --document-private-items
 	@echo "open target/doc/glimpse/index.html"
 
+.PHONY: demo
+demo: ## Redraw the README animation (an illustration, not a capture)
+	@scripts/make-demo.py
+
 .PHONY: docs-sync
 docs-sync: ## Regenerate generated doc sections and report any drift
 	@scripts/sync-docs.sh
