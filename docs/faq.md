@@ -62,6 +62,21 @@ click.
 Snapshots are always PNG regardless of the GIF/MP4 setting, because a still frame
 is an image and the recording format has nothing to say about it.
 
+## Is the install script safe to pipe into a shell?
+
+Read it first. That is the honest answer for any such script, this one included.
+
+What it guarantees: the download's SHA-256 is checked against the published
+checksum and **installation is refused on a mismatch**, with the file deleted
+rather than kept. The archive is extracted into a temporary directory and only the
+expected binary is copied out, so an archive containing paths like `../../.bashrc`
+cannot place anything anywhere. It installs to `~/.local/bin` and never calls sudo
+by itself.
+
+What it does not guarantee: releases are not signed, and the checksum comes from
+the same host as the tarball — so a compromise of that host defeats both. If that
+matters for your threat model, build from source.
+
 ## Where are my settings stored?
 
 `~/.config/glimpse/config.toml`. It holds the theme, the output format and

@@ -73,7 +73,29 @@ Glimpse runs on **X11 only**. See the FAQ for why.
 
 ## Installation
 
-There are no distribution packages yet. Build it from source:
+### From a release
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/viniciusdc/glimpse/main/scripts/install.sh | sh
+```
+
+Read [the script](scripts/install.sh) first — it is short, and that advice holds
+for anything piped into a shell. It downloads the release tarball, **verifies its
+SHA-256 against the published checksum and refuses to install on a mismatch**,
+extracts into a temporary directory and copies out only the binary, and installs
+to `~/.local/bin` without ever calling sudo.
+
+`GLIMPSE_VERSION=v0.1.0` pins a version rather than taking the latest, and
+`INSTALL_DIR=/usr/local/bin` puts it elsewhere — somewhere you would then need
+permission to write.
+
+Releases are not signed. The checksum guards against a corrupted or tampered
+download only as far as the checksum itself is trustworthy, and both come from the
+same host, so a compromise of that host defeats both.
+
+### From source
+
+There are no distribution packages yet.
 
 ```sh
 sudo apt install libgtk-4-dev ffmpeg     # or your distribution's equivalent
@@ -168,6 +190,7 @@ data/
   glimpse.desktop       Desktop entry, installed by `make install`
 scripts/
   headless.sh           Runs Glimpse on a private X server, off your screen
+  install.sh            Installs a release, refusing anything that fails its checksum
   make-demo.py          Draws the README animation, frame by frame
   sync-docs.sh          Regenerates the ADR index; fails the build on doc drift
 docs/
