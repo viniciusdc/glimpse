@@ -25,18 +25,19 @@ import shutil
 import subprocess
 import tempfile
 
-W, H = 1140, 620
+W, H = 880, 560
 LOOP = 36.0
 
 FONT = "Inter, ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
 MONO = "JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
 # ---- the Glimpse window, in canvas coordinates ------------------------------
-# Narrow enough to sit clear of the terminal on the right: the shell output is
-# part of the story, not decoration.
-WX, WY, WW = 40, 52, 660
+# The app is the subject, so it fills the frame. An earlier cut framed a whole
+# desktop with Glimpse as one element among several, and the controls — the thing
+# the animation exists to show — ended up too small to read.
+WX, WY, WW = 60, 46, 760
 HEADER_H, RULE_H, STATUS_H, SHEET_H, BORDER = 44, 2, 32, 56, 3
-HOLE_H = 438
+HOLE_H = 372
 REC_CX = WX + WW // 2                      # split button centre
 GEAR_CX = WX + WW - 26                     # settings gear
 ARROW_CX = REC_CX + 58                     # the ▾ half of the split button
@@ -204,35 +205,25 @@ def backdrop(p, shell):
          text(14, 17, "Applications", p["panel_fg"], 11),
          text(W / 2, 17, "Tue 09:41", p["panel_fg"], 11, anchor="middle"),
          text(W - 14, 17, "◇ ◈ ▲", p["panel_fg"], 11, anchor="end")]
-    # editor
-    ex, ey, ew, eh = 34, 52, W - 68, H - 66
+    # The editor behind the window. It fills the canvas because its only job is
+    # to be visible THROUGH the hole — that is what makes the transparency read.
+    ex, ey, ew, eh = 16, 34, W - 32, H - 50
     o += [f'<rect x="{ex}" y="{ey}" width="{ew}" height="{eh}" rx="9" fill="{p["card"]}" stroke="{p["card_line"]}"/>',
           f'<path d="M{ex} {ey+9} a9 9 0 0 1 9 -9 h{ew-18} a9 9 0 0 1 9 9 v25 h-{ew} Z" fill="{p["card_bar"]}"/>',
           f'<circle cx="{ex+18}" cy="{ey+17}" r="5" fill="{p["gutter"]}"/>',
           text(ex + 34, ey + 21, "encoder.py", p["txt"], 11),
           text(ex + 106, ey + 21, "palette.py", p["cmt"], 11),
           text(ex + 172, ey + 21, "region.py", p["cmt"], 11)]
-    y = ey + 56
+    y = ey + 54
     for i, (line, kind) in enumerate(CODE):
         o.append(text(ex + 40, y, str(i + 1), p["gutter"], 12, MONO, anchor="end"))
         if line.strip():
             indent = len(line) - len(line.lstrip())
             o.append(text(ex + 52 + indent * 7.2, y, line.strip(), p[kind], 12, MONO))
         y += 22
-    # terminal
-    tx, tw, th = W - 34 - 398, 398, 196
-    ty = H - 14 - th
-    o += [f'<rect x="{tx}" y="{ty}" width="{tw}" height="{th}" rx="9" fill="{p["term_bg"]}" stroke="{p["card_line"]}"/>',
-          f'<path d="M{tx} {ty+9} a9 9 0 0 1 9 -9 h{tw-18} a9 9 0 0 1 9 9 v19 h-{tw} Z" fill="{p["term_bar"]}"/>',
-          text(tx + 12, ty + 18, "~/src/glimpse", p["meta"], 11)]
-    lines = ["➜  glimpse git:(main) ninja -C build",
-             "[42/42] Linking target glimpse",
-             "➜  glimpse git:(main) ./build/glimpse --debug",
-             "region: 754x438 @ 18fps", "encoder: gifski (palette 256)", shell + " ▍"]
-    yy = ty + 46
-    for ln in lines:
-        o.append(text(tx + 12, yy, ln, p["term_fg"], 11.5, MONO))
-        yy += 19
+    # The shell line still narrates each beat, tucked along the bottom where it
+    # informs without competing.
+    o.append(text(ex + 14, H - 12, "› " + shell, p["cmt"], 11, MONO))
     return "".join(o)
 
 
@@ -370,7 +361,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="docs/assets/demo.gif")
     ap.add_argument("--fps", type=int, default=10)
-    ap.add_argument("--scale", type=float, default=0.78)
+    ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--theme", default="dark", choices=["dark", "light"])
     args = ap.parse_args()
 

@@ -38,7 +38,7 @@ keep using the application underneath while you line the frame up and while you
 record.
 
 <div align="center">
-  <img src="docs/assets/demo.gif" alt="Glimpse: framing a region, recording it, encoding, saving, taking a snapshot, and aborting when the frame moves" width="888"/>
+  <img src="docs/assets/demo.gif" alt="Glimpse: framing a region, recording it, encoding, saving, taking a snapshot, and aborting when the frame moves" width="880"/>
 </div>
 
 <p align="center">

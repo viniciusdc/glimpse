@@ -83,9 +83,14 @@ make demo
 ```
 
 Draws 360 frames and assembles them through Glimpse's own pipeline. **It takes
-about seven minutes**, almost all of it ImageMagick rendering SVG — it has not
+six to seven minutes**, almost all of it ImageMagick rendering SVG — it has not
 hung. `--fps` and `--scale` trade size against smoothness; the default lands at
-roughly 390 KB.
+roughly 310 KB.
+
+The frame is deliberately tight around the window. An earlier cut showed a whole
+desktop with Glimpse as one element among several, and the controls — the thing
+the animation exists to show — came out too small to read. Whatever else changes,
+the app should stay the subject.
 
 ## Keeping the docs honest
 
