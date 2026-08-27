@@ -47,7 +47,13 @@ log=$(mktemp -t glimpse-selftest.XXXXXX)
 trap 'rm -f "$log"' EXIT
 
 status=0
-"${runner[@]}" env GLIMPSE_SELFTEST=1 "$@" 2>&1 | tee "$log" || status=$?
+# `${runner[@]+...}` rather than `${runner[@]}`: expanding an EMPTY array under
+# `set -u` is an error in bash 3.2, which is what macOS ships. It does not fail
+# loudly either. The whole pipeline is skipped — `tee` never runs, so the log is
+# never created — and `status` keeps its initial 0, so the check below passes on
+# a command that never executed. The report-presence check then catches it and
+# blames the app for exiting early, when the app was never started.
+"${runner[@]+"${runner[@]}"}" env GLIMPSE_SELFTEST=1 "$@" 2>&1 | tee "$log" || status=$?
 
 # First argument is the reason; any further arguments are context lines, printed
 # one per line. Building the message with command substitution ate the newlines,
