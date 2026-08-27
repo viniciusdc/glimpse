@@ -29,6 +29,31 @@ if [[ $# -eq 0 ]]; then
   exit 2
 fi
 
+# Both tools have to be present, and `xdpyinfo` for a sharper reason than the
+# obvious one.
+#
+# The clobber check below is an `if` on xdpyinfo's exit status. A missing
+# xdpyinfo exits 127, so the branch is not taken and the guard silently passes —
+# it would then start an X server on top of a live display, having reported that
+# the display was free. A safety check that cannot run must refuse rather than
+# shrug; the same failure shape as a liveness probe that always answers "alive".
+#
+# They are separate packages on Debian (`xvfb` and `x11-utils`), so having one
+# without the other is an ordinary state rather than a corner case. And without
+# this, a missing Xvfb surfaced six seconds later as "Xvfb did not come up",
+# which describes a server that failed to start rather than one that was never
+# installed.
+missing=()
+command -v Xvfb     >/dev/null 2>&1 || missing+=(Xvfb)
+command -v xdpyinfo >/dev/null 2>&1 || missing+=(xdpyinfo)
+if (( ${#missing[@]} )); then
+  echo "scripts/headless.sh needs, and cannot find: ${missing[*]}" >&2
+  echo "  Debian/Ubuntu: sudo apt-get install xvfb x11-utils" >&2
+  echo "Without these it cannot run Glimpse off-screen, and cannot verify that" >&2
+  echo "$HEADLESS_DISPLAY is free before starting a server on it." >&2
+  exit 1
+fi
+
 # Refuse to clobber a live display — :99 is conventional for this, but check.
 if xdpyinfo -display "$HEADLESS_DISPLAY" >/dev/null 2>&1; then
   echo "$HEADLESS_DISPLAY is already in use; set HEADLESS_DISPLAY to something else" >&2
