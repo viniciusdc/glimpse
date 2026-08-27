@@ -22,13 +22,16 @@ fn request() -> GrabRequest {
     }
 }
 
-/// The backend reads `DISPLAY` rather than taking one, so a test has to set it.
-/// Serialised implicitly by being the only test that touches the environment.
+/// Name the display directly rather than going through `DISPLAY`.
+///
+/// An earlier version of this file set the environment variable instead, and
+/// claimed to be serialised "by being the only test that touches it" — which was
+/// untrue the moment a second test called the same helper. Cargo runs these in
+/// parallel threads, so they raced: CI caught one asserting on `:0` while
+/// another had just set `:7.1`. Process-wide mutable state has no place in a
+/// test that can run concurrently with its siblings.
 fn backend_with_display(display: &str) -> X11Capture {
-    // SAFETY: single-threaded within this test binary's use of it, and the value
-    // is read immediately below.
-    unsafe { std::env::set_var("DISPLAY", display) };
-    X11Capture::from_env().expect("DISPLAY was just set")
+    X11Capture::new(display)
 }
 
 fn value_of<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
@@ -70,10 +73,17 @@ fn the_mouse_toggle_maps_to_draw_mouse() {
     assert_eq!(value_of(&without.input, "-draw_mouse"), Some("0"));
 }
 
+/// A display is handed to ffmpeg exactly as given — screen and sub-screen
+/// suffixes included, never normalised or defaulted.
+///
+/// The related guarantee, that `from_env` errors instead of falling back to
+/// `:0`, is not asserted here: reading `DISPLAY` makes the result depend on
+/// whether the machine running the tests happens to have one. It is enforced by
+/// `from_env` propagating with `?` and holding no default to regress into.
+/// Guessing `:0` would point ffmpeg at a different screen than the one the
+/// rectangle was computed against.
 #[test]
-fn the_display_is_read_from_the_environment_never_guessed() {
-    // Guessing :0 could point ffmpeg at a different screen than the one the
-    // rectangle was computed against.
+fn the_display_is_used_verbatim() {
     let cmd = backend_with_display(":7.1").grab(&request());
     assert_eq!(value_of(&cmd.input, "-i"), Some(":7.1"));
 }

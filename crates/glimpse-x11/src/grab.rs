@@ -22,11 +22,23 @@ pub struct X11Capture {
 }
 
 impl X11Capture {
+    /// Record against a named display.
+    ///
+    /// Exists so a caller — a test, or an example — can name a display without
+    /// touching the process environment. `DISPLAY` is global mutable state and
+    /// Rust runs tests in parallel threads, so a test that sets it races every
+    /// other test in the binary.
+    pub fn new(display: impl Into<String>) -> Self {
+        Self {
+            display: display.into(),
+        }
+    }
+
     /// Read the display from the environment. Returns an error rather than
     /// falling back to `:0`.
     pub fn from_env() -> Result<Self> {
         let display = std::env::var("DISPLAY").context("DISPLAY is not set; cannot record")?;
-        Ok(Self { display })
+        Ok(Self::new(display))
     }
 
     pub fn display(&self) -> &str {
