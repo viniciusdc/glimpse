@@ -196,6 +196,7 @@ data/
 scripts/
   headless.sh           Runs Glimpse on a private X server, off your screen
   install.sh            Installs a release, refusing anything that fails its checksum
+  selftest.sh           Runs the self-test and turns its report into an exit status
   make-demo.py          Draws the README animation, frame by frame
   sync-docs.sh          Regenerates the ADR index; fails the build on doc drift
 docs/

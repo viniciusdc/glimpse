@@ -78,7 +78,7 @@ headless: ## Run Glimpse on a private X server (never touches your screen)
 
 .PHONY: selftest-headless
 selftest-headless: ## Geometry + input-region self-test, off-screen
-	@scripts/headless.sh env GLIMPSE_SELFTEST=1 $(NICE) $(CARGO) run $(JOBS)
+	@scripts/selftest.sh --headless $(NICE) $(CARGO) run $(JOBS)
 
 .PHONY: smoke
 smoke: ## Full record -> GIF and record -> MP4, off-screen
@@ -87,10 +87,7 @@ smoke: ## Full record -> GIF and record -> MP4, off-screen
 
 .PHONY: selftest
 selftest: ## Verify geometry against a real capture — then LOOK at the PNG
-	GLIMPSE_SELFTEST=1 $(NICE) $(CARGO) run $(JOBS)
-	@echo
-	@echo "Now open /tmp/glimpse-selftest.png. Any Glimpse chrome in it means"
-	@echo "the capture rect is wrong, whatever the numbers above said."
+	@scripts/selftest.sh $(NICE) $(CARGO) run $(JOBS)
 
 .PHONY: docs
 docs: ## Build the API documentation

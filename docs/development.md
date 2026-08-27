@@ -201,8 +201,13 @@ Any change to `geometry.rs` or the widget hierarchy in `ui.rs` must be checked
 against a real capture, not just the test suite:
 
 ```sh
-GLIMPSE_SELFTEST=1 cargo run
+make selftest            # on your screen
+make selftest-headless   # on a private X server
 ```
+
+Both go through `scripts/selftest.sh`, which turns the report below into an exit
+status. Run `GLIMPSE_SELFTEST=1 cargo run` directly and you get the report with
+no exit status at all — fine when you are reading it, misleading in a `&&` chain.
 
 A passing run looks like this — the shape verdict is semantic, not a band count:
 
@@ -224,6 +229,12 @@ reconciling is necessary, not sufficient.
 Then **look at** `/tmp/glimpse-selftest.png`. If any part of Glimpse's own
 interface appears in it — frame border, toolbar, status bar — the rectangle is
 wrong, regardless of what the printed numbers say.
+
+The harness deletes that PNG before every run and refuses the run if one did not
+come back. Without that, a failed grab leaves the *previous* run's image on disk,
+and the instruction above sends you to inspect a correct picture of a question
+nobody asked — the failure that looks most like success. It also refuses a FAIL
+shape verdict and a run that printed no report, both of which used to exit 0.
 
 This is not belt-and-braces. During the spike the computed rectangle agreed with
 `xwininfo` to the pixel and was still wrong by the 3px border width; only the

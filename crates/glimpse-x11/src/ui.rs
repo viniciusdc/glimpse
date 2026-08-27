@@ -1179,8 +1179,14 @@ fn grab_through_the_shipping_path(rect: ScreenPixelRect, out: &std::path::Path) 
         .output()
         .map_err(|e| anyhow!("ffmpeg not spawnable: {e}"))?;
     if !output.status.success() {
+        // Report the status when there is nothing on stderr. `-loglevel error`
+        // means a silent failure is entirely possible, and "FAILED: ?" tells
+        // whoever is looking at it nothing at all.
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!("{}", stderr.lines().last().unwrap_or("?")));
+        return Err(match stderr.lines().last() {
+            Some(last) => anyhow!("{last}"),
+            None => anyhow!("ffmpeg exited {} with no diagnostics", output.status),
+        });
     }
     Ok(())
 }
