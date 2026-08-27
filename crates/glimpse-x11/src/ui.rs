@@ -1121,33 +1121,12 @@ fn run_selftest(window: &gtk::ApplicationWindow, hole: &gtk::Box, probe: &X11Pro
         .unwrap_or_else(|| "unavailable".into());
 
     let out = "/tmp/glimpse-selftest.png";
-    let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".into());
-    let grab = std::process::Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-f",
-            "x11grab",
-            "-video_size",
-            &rect.video_size(),
-            "-i",
-            &format!("{display}+{},{}", rect.x, rect.y),
-            "-frames:v",
-            "1",
-            out,
-        ])
-        .output();
+    let grab = grab_through_the_shipping_path(rect, std::path::Path::new(out));
     let grab = match grab {
-        Ok(o) if o.status.success() => format!(
+        Ok(()) => format!(
             "wrote {out} — INSPECT IT: any Glimpse chrome in the image means the rect is wrong"
         ),
-        Ok(o) => format!(
-            "FAILED: {}",
-            String::from_utf8_lossy(&o.stderr)
-                .lines()
-                .last()
-                .unwrap_or("?")
-        ),
-        Err(e) => format!("ffmpeg not spawnable: {e}"),
+        Err(e) => format!("FAILED: {e:#}"),
     };
 
     format!(
@@ -1159,6 +1138,51 @@ fn run_selftest(window: &gtk::ApplicationWindow, hole: &gtk::Box, probe: &X11Pro
          grab         : {grab}\n",
         rect.w, rect.h, rect.x, rect.y
     )
+}
+
+/// Grab `rect` to `out`, through the same argument construction the app ships.
+///
+/// The point of routing this through [`X11Capture`] rather than assembling flags
+/// here is that the self-test is the check of last resort — the one thing that
+/// can see a misplaced rectangle, which the suite provably cannot (ADR 0000). A
+/// check built on its own copy of the arguments can only ever vouch for that
+/// copy.
+///
+/// It was not a hypothetical divergence. The inline version passed the region as
+/// `DISPLAY+x,y` inside the input URL — precisely the form
+/// `grab::tests::the_region_is_passed_as_documented_options_not_baked_into_the_url`
+/// exists to forbid — and named no codec, so the PNG came out of ffmpeg
+/// inferring one from the file extension. That inference is what wrote a JPEG
+/// into a file called `.png` (ADR 0009) and an MP4 into one called `.gif`.
+///
+/// So this function deliberately contains **no ffmpeg flag strings at all**.
+/// There is now exactly one place in the crate that knows how to spell an
+/// `x11grab` invocation, which makes the divergence unpronounceable rather than
+/// merely fixed — the same move as putting the border on the parent widget.
+fn grab_through_the_shipping_path(rect: ScreenPixelRect, out: &std::path::Path) -> Result<()> {
+    // `from_env` rather than a `:0` fallback: the rectangle was computed against
+    // whatever display the window is on, and guessing a different one here would
+    // grab the wrong screen while reporting success.
+    let backend = X11Capture::from_env()?;
+    let command = backend.grab(&GrabRequest {
+        rect,
+        // A single frame, so no capture rate — the same shape a snapshot takes.
+        framerate: None,
+        // Off, so the image is about geometry and nothing else. Left unstated by
+        // the old inline version, which meant x11grab's default applied and the
+        // pointer could land in the middle of a rectangle-alignment check.
+        capture_mouse: false,
+    });
+
+    let output = std::process::Command::new("ffmpeg")
+        .args(command.snapshot_args(out))
+        .output()
+        .map_err(|e| anyhow!("ffmpeg not spawnable: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("{}", stderr.lines().last().unwrap_or("?")));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
