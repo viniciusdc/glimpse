@@ -1,13 +1,13 @@
 //! Clipping is the one piece of the geometry chain testable without a display,
 //! and it is the piece that protects ffmpeg from impossible input.
 
-use glimpse::geometry::RootPixelRect;
+use glimpse_core::geometry::ScreenPixelRect;
 
 const ROOT_W: i32 = 3440;
 const ROOT_H: i32 = 1440;
 
-fn clip(x: i32, y: i32, w: i32, h: i32) -> RootPixelRect {
-    RootPixelRect { x, y, w, h }.clipped_to(ROOT_W, ROOT_H)
+fn clip(x: i32, y: i32, w: i32, h: i32) -> ScreenPixelRect {
+    ScreenPixelRect { x, y, w, h }.clipped_to(ROOT_W, ROOT_H)
 }
 
 #[test]
@@ -15,7 +15,7 @@ fn a_rect_fully_on_screen_is_untouched() {
     let r = clip(100, 100, 640, 480);
     assert_eq!(
         r,
-        RootPixelRect {
+        ScreenPixelRect {
             x: 100,
             y: 100,
             w: 640,
@@ -31,7 +31,7 @@ fn dragging_off_the_left_edge_shrinks_rather_than_shifts() {
     let r = clip(-200, 50, 640, 480);
     assert_eq!(
         r,
-        RootPixelRect {
+        ScreenPixelRect {
             x: 0,
             y: 50,
             w: 440,
@@ -45,7 +45,7 @@ fn dragging_off_the_bottom_right_truncates_to_the_root() {
     let r = clip(ROOT_W - 100, ROOT_H - 50, 640, 480);
     assert_eq!(
         r,
-        RootPixelRect {
+        ScreenPixelRect {
             x: ROOT_W - 100,
             y: ROOT_H - 50,
             w: 100,
@@ -67,14 +67,14 @@ fn video_size_matches_the_x11grab_argument_form() {
 
 #[test]
 fn a_zero_area_rect_is_never_capturable() {
-    assert!(!RootPixelRect {
+    assert!(!ScreenPixelRect {
         x: 0,
         y: 0,
         w: 0,
         h: 1080
     }
     .is_capturable());
-    assert!(!RootPixelRect {
+    assert!(!ScreenPixelRect {
         x: 0,
         y: 0,
         w: 1920,

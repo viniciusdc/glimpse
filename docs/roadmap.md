@@ -12,7 +12,7 @@ Ordered by dependency, not by date.
 
 ## Done — the session lifecycle skeleton
 
-`src/session.rs`, 13 tests. Pure `(State, Event) → (State, Effect)`; no process
+`glimpse-core/src/session.rs`, 13 tests. Pure `(State, Event) → (State, Effect)`; no process
 handles, no clock, no I/O. Every policy below is pinned by a test that runs in CI
 without a display.
 
@@ -35,7 +35,7 @@ because they fail differently and encoding can outlast capture by a lot.
 
 ## Done — capture
 
-`src/capture.rs`. `ffmpeg -f x11grab` into a per-session workspace, stopped by
+`glimpse-core/src/capture.rs`. `ffmpeg -f x11grab` into a per-session workspace, stopped by
 writing `q` to ffmpeg's stdin with a bounded escalation to a kill. `Recorder`
 exclusively owns the child and waits on it on every exit path, including a `Drop`
 backstop for panics and early returns.
@@ -54,7 +54,7 @@ Every flag is derived from `ffmpeg -h demuxer=x11grab` and
 ## Done — the Record button, wired through the machine
 
 Every user action goes through `session::transition`, so the policies stay in the
-tested pure module instead of spreading into callbacks. `src/worker.rs` owns the
+tested pure module instead of spreading into callbacks. `glimpse-core/src/worker.rs` owns the
 `Recorder` on its own thread — dropping the worker joins that thread, which
 guarantees the child is killed and reaped before shutdown proceeds. A 100ms driver
 polls for results and, while recording, calls `geometry_drifted()`: a frame that
@@ -69,7 +69,7 @@ ffmpeg and no zombies.
 
 ## Done — encoding
 
-`src/encode.rs`, **GIF and MP4** ([ADR 0007](adr/0007-gif-and-mp4.md)). GIF uses
+`glimpse-core/src/encode.rs`, **GIF and MP4** ([ADR 0007](adr/0007-gif-and-mp4.md)). GIF uses
 `palettegen` → `paletteuse` with the **default** filter options
 because the recommended screencast tweaks were measured and earned nothing
 ([ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md)). Staged in the
@@ -81,7 +81,7 @@ Record → GIF works end to end.
 
 ## Done — settings and themes
 
-`src/config.rs` and `~/.config/glimpse/config.toml`: theme, output format, output
+`glimpse-core/src/config.rs` and `~/.config/glimpse/config.toml`: theme, output format, output
 folder, framerate and cursor capture, written on every change rather than at exit
 ([ADR 0008](adr/0008-settings-and-themes.md)). Three themes — follow system, light
 and dark — with the colours that carry meaning identical across both palettes.

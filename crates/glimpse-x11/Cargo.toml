@@ -1,0 +1,14 @@
+[package]
+name = "glimpse-x11"
+version = "0.1.0"
+edition = "2021"
+description = "The X11 frontend of Glimpse: a GTK4 framing window with its input region punched."
+license = "Apache-2.0"
+repository = "https://github.com/viniciusdc/glimpse"
+
+[dependencies]
+anyhow = { workspace = true }
+glimpse-core = { path = "../glimpse-core" }
+gtk4 = { workspace = true }
+gdk4-x11 = { workspace = true }
+x11rb = { workspace = true }

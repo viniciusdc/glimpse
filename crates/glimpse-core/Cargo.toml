@@ -1,0 +1,31 @@
+[package]
+name = "glimpse-core"
+version = "0.1.0"
+edition = "2021"
+description = "The platform-free core of Glimpse: session lifecycle, encoding, and process ownership."
+license = "Apache-2.0"
+repository = "https://github.com/viniciusdc/glimpse"
+
+# NOTHING TOOLKIT-SHAPED BELONGS IN THIS TABLE.
+#
+# ADR 0010's whole point: no `gtk4`, no `gdk4-*`, no `x11rb`, no `objc2`. The
+# boundary is meant to be enforced by the compiler rather than remembered from
+# AGENTS.md, and it only is for as long as this list stays short.
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+
+# Target tables go LAST in this file, and nothing follows them.
+#
+# `serde` and `toml` were once written below a `cfg(target_os = "linux")` header,
+# which silently scoped them to Linux — `cargo tree --target aarch64-apple-darwin`
+# resolved a graph with neither in it, so `config.rs` and `OutputFormat`'s derives
+# could not compile on macOS at all. Nothing warns about this: on the platform you
+# develop on, a misplaced dependency looks exactly like a correct one.
+#
+# `cfg(unix)`, not `cfg(target_os = "linux")`: macOS needs `kill(pid, 0)` to tell
+# whether a workspace's owner is still alive. PR_SET_PDEATHSIG is still gated to
+# Linux in the code, where it belongs.
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }

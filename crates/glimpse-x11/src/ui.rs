@@ -25,12 +25,15 @@ use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use crate::capture::{RecorderConfig, Workspace};
-use crate::config::{Config, Mode, Theme};
-use crate::encode::{Canceller, OutputFormat, Progress};
-use crate::geometry::{capture_rect, RootPixelRect};
-use crate::session::{transition, CaptureRequest, Effect, Event, State};
-use crate::worker::{FileJob, JobEvent, RecordingWorker, WorkerEvent};
+use glimpse_core::capture::{GrabRequest, Workspace};
+use glimpse_core::config::{Config, Mode, Theme};
+use glimpse_core::encode::{Canceller, OutputFormat, Progress};
+use glimpse_core::geometry::ScreenPixelRect;
+use glimpse_core::session::{transition, CaptureRequest, Effect, Event, State};
+use glimpse_core::worker::{FileJob, JobEvent, RecordingWorker, WorkerEvent};
+
+use crate::geometry::capture_rect;
+use crate::grab::X11Capture;
 use crate::x11probe::{self, shape_covers, X11Probe};
 
 /// Colours that differ between the light and dark palettes.
@@ -315,8 +318,8 @@ pub struct FramingWindow {
     probe: Rc<X11Probe>,
     /// The rect snapshotted when locking, per ADR 0002. `Some` means a session
     /// owns the geometry.
-    frozen: Cell<Option<RootPixelRect>>,
-    /// The lifecycle. Every transition goes through `crate::session::transition`,
+    frozen: Cell<Option<ScreenPixelRect>>,
+    /// The lifecycle. Every transition goes through `glimpse_core::session::transition`,
     /// so the policies stay in the tested pure module rather than in callbacks.
     state: RefCell<State>,
     /// Owns the ffmpeg child while a recording is live. Dropping it reaps.
@@ -807,7 +810,7 @@ impl FramingWindow {
     /// Freeze the geometry for a recording session (ADR 0002: the frame must not
     /// move under the recorder, or the visible frame and the fixed x11grab
     /// rectangle diverge silently).
-    pub fn lock(&self) -> Result<RootPixelRect> {
+    pub fn lock(&self) -> Result<ScreenPixelRect> {
         let rect = capture_rect(&self.window, &self.hole, &self.probe)?;
         if !rect.is_capturable() {
             return Err(anyhow!("frame is off-screen: {}x{}", rect.w, rect.h));
@@ -822,7 +825,7 @@ impl FramingWindow {
         self.window.set_resizable(true);
     }
 
-    pub fn frozen_rect(&self) -> Option<RootPixelRect> {
+    pub fn frozen_rect(&self) -> Option<ScreenPixelRect> {
         self.frozen.get()
     }
 
@@ -833,7 +836,7 @@ impl FramingWindow {
     /// fixed root rectangle, so an undetected move means the visible frame and the
     /// recording diverge while the output still looks plausible. Enforcement is a
     /// checked invariant, not an assumption about what GTK can prevent.
-    pub fn geometry_drifted(&self) -> Option<(RootPixelRect, RootPixelRect)> {
+    pub fn geometry_drifted(&self) -> Option<(ScreenPixelRect, ScreenPixelRect)> {
         let frozen = self.frozen.get()?;
         let now = capture_rect(&self.window, &self.hole, &self.probe).ok()?;
         (now != frozen).then_some((frozen, now))
@@ -1257,8 +1260,8 @@ impl FramingWindow {
                 return;
             }
         };
-        let display = match RecorderConfig::display_from_env() {
-            Ok(d) => d,
+        let backend = match X11Capture::from_env() {
+            Ok(b) => b,
             Err(e) => {
                 self.status.set_text(&format!("{e:#}"));
                 return;
@@ -1266,19 +1269,20 @@ impl FramingWindow {
         };
 
         let cfg = self.config.borrow();
-        let recorder = RecorderConfig {
-            display,
+        // `None` framerate: a snapshot is a single frame, not a one-frame
+        // recording, so no capture rate is expressed at all.
+        let grab = backend.grab(&GrabRequest {
             rect,
-            framerate: cfg.framerate,
+            framerate: None,
             capture_mouse: cfg.capture_mouse,
-        };
+        });
         let destination = cfg.snapshot_destination();
         drop(cfg);
 
         self.status.set_text("capturing…");
         self.record.set_sensitive(false);
         *self.encoder.borrow_mut() = Some(FileJob::spawn(move || {
-            crate::capture::snapshot(&recorder, &destination)
+            glimpse_core::capture::snapshot(&grab, &destination)
         }));
     }
 
@@ -1390,22 +1394,21 @@ impl FramingWindow {
             Effect::None => None,
 
             Effect::StartRecorder(request) => {
-                let display = match RecorderConfig::display_from_env() {
-                    Ok(d) => d,
+                let backend = match X11Capture::from_env() {
+                    Ok(b) => b,
                     Err(e) => return Some(Event::RecorderFailed(format!("{e:#}"))),
                 };
                 let workspace = match Workspace::create() {
                     Ok(w) => w,
                     Err(e) => return Some(Event::RecorderFailed(format!("{e:#}"))),
                 };
-                let config = RecorderConfig {
-                    display,
+                let grab = backend.grab(&GrabRequest {
                     rect: request.rect,
-                    framerate: request.framerate,
+                    framerate: Some(request.framerate),
                     capture_mouse: request.capture_mouse,
-                };
+                });
                 *self.workspace.borrow_mut() = Some(workspace.root().to_path_buf());
-                *self.worker.borrow_mut() = Some(RecordingWorker::start(config, workspace));
+                *self.worker.borrow_mut() = Some(RecordingWorker::start(grab, workspace));
                 None
             }
 
@@ -1442,7 +1445,7 @@ impl FramingWindow {
                 *self.cancel_encode.borrow_mut() = canceller.clone();
                 *self.encode_progress.borrow_mut() = progress.clone();
                 *self.encoder.borrow_mut() = Some(FileJob::spawn(move || {
-                    crate::encode::encode_reporting(
+                    glimpse_core::encode::encode_reporting(
                         &src,
                         &destination,
                         format,

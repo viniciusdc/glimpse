@@ -4,16 +4,16 @@
 //! only exist in prose. None of them spawn a process or open a display, which is
 //! the point: CI has neither.
 
-use glimpse::encode::OutputFormat;
-use glimpse::geometry::RootPixelRect;
-use glimpse::session::{
+use glimpse_core::encode::OutputFormat;
+use glimpse_core::geometry::ScreenPixelRect;
+use glimpse_core::session::{
     transition, CaptureRequest, CapturedVideo, Effect, Event, State, StopReason,
 };
 use std::path::PathBuf;
 
 fn request() -> CaptureRequest {
     CaptureRequest {
-        rect: RootPixelRect {
+        rect: ScreenPixelRect {
             x: 10,
             y: 10,
             w: 640,

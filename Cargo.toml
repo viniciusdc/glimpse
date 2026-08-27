@@ -7,20 +7,28 @@ license = "Apache-2.0"
 repository = "https://github.com/viniciusdc/glimpse"
 
 [dependencies]
+anyhow = { workspace = true }
+glimpse-core = { path = "crates/glimpse-core" }
+
+# The frontend is selected by target, per ADR 0010. The window model is a compile
+# time choice — there is exactly one per binary — so it is a dependency edge here
+# rather than a trait. `glimpse-macos` joins this list when it exists.
+[target.'cfg(target_os = "linux")'.dependencies]
+glimpse-x11 = { path = "crates/glimpse-x11" }
+
+[workspace]
+members = ["crates/*"]
+
+# Versions live here so the two crates cannot drift apart on a shared dependency.
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
 # v4_10 for FileDialog, which is how the output folder is chosen.
 gtk4 = { version = "0.11", features = ["v4_10"] }
 gdk4-x11 = "0.11"
 x11rb = { version = "0.14", features = ["shape"] }
-anyhow = "1"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-# Solely for PR_SET_PDEATHSIG — see the spawn in src/capture.rs.
 libc = "0.2"
-
-serde = { version = "1", features = ["derive"] }
-toml = "0.9"
 
 # gifski dropped from v0.1 per ADR 0002 — revisit only if the ffmpeg GIF output
 # measures poorly.
-
-[workspace]

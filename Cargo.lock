@@ -311,11 +311,28 @@ name = "glimpse"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "gdk4-x11",
- "gtk4",
+ "glimpse-core",
+ "glimpse-x11",
+]
+
+[[package]]
+name = "glimpse-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "libc",
  "serde",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "glimpse-x11"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gdk4-x11",
+ "glimpse-core",
+ "gtk4",
  "x11rb",
 ]
 

@@ -4,15 +4,15 @@
 //! actually is, and what input shape the server actually holds for it.
 //!
 //! ```sh
-//! cargo run --example root_geometry              # root size only
-//! cargo run --example root_geometry -- 0x9a00004 # plus that window
+//! cargo run -p glimpse-x11 --example root_geometry              # root size only
+//! cargo run -p glimpse-x11 --example root_geometry -- 0x9a00004 # plus that window
 //! ```
 //!
 //! Handy for confirming a suspicion about click-through: if `input shape` comes
 //! back empty, the region never took effect, whatever the pointer seems to do.
 
 use anyhow::Result;
-use glimpse::x11probe::X11Probe;
+use glimpse_x11::x11probe::X11Probe;
 
 fn main() -> Result<()> {
     let probe = X11Probe::new()?;

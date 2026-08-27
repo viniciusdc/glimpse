@@ -1,7 +1,7 @@
 //! Settings persistence. No display and no GTK involved — this is plain data.
 
-use glimpse::config::{Config, Mode, Theme};
-use glimpse::encode::OutputFormat;
+use glimpse_core::config::{Config, Mode, Theme};
+use glimpse_core::encode::OutputFormat;
 use std::path::PathBuf;
 
 fn scratch(name: &str) -> PathBuf {
