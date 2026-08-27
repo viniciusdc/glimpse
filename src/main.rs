@@ -1,13 +1,20 @@
-//! Glimpse — animated GIF screen recorder with a framing window.
+//! Glimpse — animated screen recorder with a framing window.
+//!
+//! This crate is the binary and nothing else. The window model is a compile-time
+//! choice with exactly one candidate per target, so the frontend is selected by a
+//! dependency edge rather than by a trait — see
+//! [ADR 0010](../docs/adr/0010-capture-providers-and-a-platform-free-core.md).
+//!
+//! Nothing toolkit-shaped is named here, which is what lets the crate resolve on
+//! a platform that has no frontend yet.
 
-use glimpse::{ui, x11probe};
-use gtk::glib;
-use gtk::prelude::*;
-use gtk4 as gtk;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::process::ExitCode;
 
-/// Answer `--version` and `--help` before touching GTK.
+/// The platforms a frontend exists for, for the `--help` text and the refusal
+/// message. Kept as one list so the two cannot disagree.
+const SUPPORTED: &str = "Linux/X11";
+
+/// Answer `--version` and `--help` before touching a toolkit.
 ///
 /// A released binary that cannot say what it is leaves the user comparing file
 /// dates. Returns true if the process should stop here.
@@ -27,9 +34,10 @@ fn handled_cli() -> bool {
                  -V, --version   Print the version\n  \
                  -h, --help      Print this help\n\n\
                  Settings live in ~/.config/glimpse/config.toml and in the header menu.\n\
-                 Requires an X11 session and ffmpeg.\n\
+                 Requires {s} and ffmpeg.\n\
                  {r}",
                 v = env!("CARGO_PKG_VERSION"),
+                s = SUPPORTED,
                 r = env!("CARGO_PKG_REPOSITORY"),
             );
             true
@@ -38,65 +46,32 @@ fn handled_cli() -> bool {
     }
 }
 
-fn main() -> glib::ExitCode {
+fn main() -> ExitCode {
     if handled_cli() {
-        return glib::ExitCode::SUCCESS;
+        return ExitCode::SUCCESS;
     }
+    run()
+}
 
-    let app = gtk::Application::builder()
-        .application_id("com.vinicius.glimpse")
-        .build();
+#[cfg(target_os = "linux")]
+fn run() -> ExitCode {
+    glimpse_x11::run()
+}
 
-    // `app.run()` reports success even after `quit()`, so a startup refusal would
-    // otherwise exit 0 and any script chaining off Glimpse would march on.
-    let refused = Rc::new(RefCell::new(false));
-    // Held for the lifetime of the application rather than leaked. Once a session
-    // owns an ffmpeg child and a temp workspace, "reap on every exit path" has to
-    // be reachable through Drop, which a forgotten owner can never provide.
-    let framing: Rc<RefCell<Option<Rc<ui::FramingWindow>>>> = Rc::new(RefCell::new(None));
-
-    let refused_c = refused.clone();
-    let framing_c = framing.clone();
-    app.connect_activate(move |app| {
-        // Connecting to an X server is not proof GTK is *using* X11 — under
-        // Wayland, XWayland answers on $DISPLAY while GTK picks its own backend.
-        if let Err(e) = x11probe::require_x11_display() {
-            eprintln!("glimpse: {e:#}");
-            *refused_c.borrow_mut() = true;
-            app.quit();
-            return;
-        }
-
-        let probe = match x11probe::X11Probe::new() {
-            Ok(p) => Rc::new(p),
-            Err(e) => {
-                eprintln!("glimpse: cannot reach the X server: {e:#}");
-                *refused_c.borrow_mut() = true;
-                app.quit();
-                return;
-            }
-        };
-
-        // Tidy up after Glimpse processes that were killed before they could.
-        match glimpse::capture::sweep_stale_workspaces() {
-            0 => {}
-            n => eprintln!("glimpse: removed {n} stale workspace(s) from a previous run"),
-        }
-        // And staging left in the output folder, which the workspace sweep does
-        // not reach because it lives beside the user's finished files.
-        match glimpse::encode::sweep_stale_staging(&glimpse::config::Config::load().output_dir) {
-            0 => {}
-            n => eprintln!("glimpse: removed {n} stale staging file(s) from a previous run"),
-        }
-
-        let framing_window = ui::FramingWindow::new(app, probe);
-        framing_window.window.present();
-        *framing_c.borrow_mut() = Some(framing_window);
-    });
-
-    let code = app.run();
-    if *refused.borrow() {
-        return glib::ExitCode::FAILURE;
-    }
-    code
+/// Built, but with no window model to run.
+///
+/// The core compiles and is tested on every platform, which is deliberate — it is
+/// how a frontend gets built against something already known to work, and how the
+/// core is stopped from quietly re-acquiring a Linux assumption in the meantime.
+/// Reaching this message means the core is fine and the frontend is the missing
+/// piece.
+#[cfg(not(target_os = "linux"))]
+fn run() -> ExitCode {
+    eprintln!(
+        "glimpse: no framing window is implemented for this platform yet.\n\
+         Supported: {SUPPORTED}.\n\
+         macOS is tracked at {}/issues/1.",
+        env!("CARGO_PKG_REPOSITORY"),
+    );
+    ExitCode::FAILURE
 }

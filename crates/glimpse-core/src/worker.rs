@@ -15,7 +15,7 @@ use std::thread::JoinHandle;
 
 use std::path::PathBuf;
 
-use crate::capture::{Recorder, RecorderConfig, Workspace};
+use crate::capture::{GrabCommand, Recorder, Workspace};
 use crate::session::CapturedVideo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,12 +47,12 @@ impl RecordingWorker {
     /// Returns immediately — a spawn failure arrives as [`WorkerEvent::Failed`]
     /// rather than as an error here, so the caller has exactly one place to
     /// handle recording failures instead of two.
-    pub fn start(config: RecorderConfig, workspace: Workspace) -> Self {
+    pub fn start(grab: GrabCommand, workspace: Workspace) -> Self {
         let (stop_tx, stop_rx) = mpsc::channel::<StopKind>();
         let (evt_tx, events) = mpsc::channel::<WorkerEvent>();
 
         let handle = std::thread::spawn(move || {
-            let recorder = match Recorder::start(&config, workspace) {
+            let recorder = match Recorder::start(&grab, workspace) {
                 Ok(r) => r,
                 Err(e) => {
                     let _ = evt_tx.send(WorkerEvent::Failed(format!("{e:#}")));

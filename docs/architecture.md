@@ -16,18 +16,33 @@ the capture region. Everything else follows from getting its rectangle right.
 
 ## Modules
 
+Three crates, split so the boundary is enforced by the compiler rather than
+remembered ([ADR 0010](adr/0010-capture-providers-and-a-platform-free-core.md)).
+
 ```
-src/lib.rs        Library surface, so geometry is testable without a display
-src/main.rs       The binary: application entry only
-src/x11probe.rs   Direct X queries — window origin, root size, input-shape readback
-src/geometry.rs   The widget → root-pixel conversion chain, with clipping
-src/config.rs     Persisted settings: theme, format, output folder
-src/session.rs    The recording lifecycle: pure state machine, no I/O
-src/capture.rs    The ffmpeg recorder: owns the child, reaps on every path
-src/worker.rs     Runs the recorder off the UI thread; dropping it reaps
-src/encode.rs     GIF and MP4 encoding, and the atomic commit
-src/ui.rs         The framing window: hole, input region, lock/unlock
+glimpse                 The binary: CLI, and picking a frontend by target
+
+glimpse-core            No gtk4, no x11rb, no objc2 — enforced by its manifest
+  geometry.rs           The capture rect, and the coordinate convention it carries
+  config.rs             Persisted settings: theme, format, output folder
+  session.rs            The recording lifecycle: pure state machine, no I/O
+  capture.rs            The ffmpeg recorder: owns the child, reaps on every path
+  worker.rs             Runs the recorder off the UI thread; dropping it reaps
+  encode.rs             GIF and MP4 encoding, and the atomic commit
+
+glimpse-x11             The X11 frontend
+  app.rs                Application entry, startup refusals, stale-state sweeps
+  ui.rs                 The framing window: hole, input region, lock/unlock
+  x11probe.rs           Direct X queries — window origin, root size, shape readback
+  geometry.rs           The widget → screen-pixel conversion chain, with clipping
+  grab.rs               Rect → x11grab arguments
 ```
+
+What crosses the boundary is `GrabCommand` — a backend's answer to "how do I
+grab that rectangle?", as pure data. Core owns the ffmpeg child and the output
+encoding; it cannot name a capture backend. That split is not tidiness:
+`x11grab` takes the region on the input as `-grab_x`/`-grab_y`, while
+`avfoundation` has no such option and must crop with a filter instead.
 
 ## The conversion chain
 
@@ -40,10 +55,15 @@ SurfaceRect     native surface coordinates, still logical
    ↓            × integer scale_factor
 device pixels
    ↓            TranslateCoordinates(xid → root)
-RootPixelRect   absolute, what x11grab is handed
-   ↓            clipped_to(root)
+ScreenPixelRect absolute, top-left origin, y down — what the backend is handed
+   ↓            clipped_to(screen)
 capture rect
 ```
+
+The last stage is where a second platform pays a cost X11 does not. Root
+coordinates are already top-left with y increasing downward, so the convention
+`ScreenPixelRect` documents is free here; AppKit puts (0,0) at the bottom-left of
+the primary screen, so a macOS frontend owes a flip before it can build one.
 
 Each stage is a distinct type. Mixing logical and device coordinates is the
 easiest mistake to make here, and the type system is cheap insurance against it.

@@ -256,7 +256,7 @@ recording directory every single time while producing a perfectly correct output
 Read the input shape back from the X server:
 
 ```sh
-cargo run --example root_geometry -- $(xdotool getactivewindow)
+cargo run -p glimpse-x11 --example root_geometry -- $(xdotool getactivewindow)
 ```
 
 Needs `xdotool`, which is optional and only used for this check; `make check-reqs`
@@ -271,7 +271,7 @@ negative during the spike, caught only by a control probe.
 ## Tests
 
 ```
-src/geometry.rs   unit tests on clipping
+glimpse-core/src/geometry.rs  unit tests on clipping
 tests/geometry.rs integration tests over the public API
 ```
 

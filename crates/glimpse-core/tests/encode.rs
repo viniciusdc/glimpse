@@ -2,7 +2,7 @@
 //! the end-to-end encode needs ffmpeg but no display, because ffmpeg can
 //! synthesise its own input.
 
-use glimpse::encode::{
+use glimpse_core::encode::{
     encode, encode_args, free_destination, mp4_args, palette_args, Canceller, OutputFormat,
 };
 use std::path::{Path, PathBuf};

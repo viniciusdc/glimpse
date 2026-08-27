@@ -165,26 +165,32 @@ Decisions — including the ones that were reversed and why — are recorded in
 AGENTS.md               Working agreement — the failure modes already hit here
 Makefile                make check is the gate; make selftest is the one CI can't run
 src/
-  lib.rs                Library surface, so the logic is testable without a display
-  main.rs               The binary: application entry and shutdown ownership
-  x11probe.rs           The X11 boundary — origin, root size, input-shape readback
-  geometry.rs           WidgetRect → SurfaceRect → RootPixelRect, with clipping
-  config.rs             Persisted settings: theme, format, output folder
-  session.rs            The recording lifecycle: pure state machine, no I/O
-  capture.rs            The ffmpeg recorder: owns the child, reaps on every path
-  worker.rs             Runs the recorder off the UI thread; dropping it reaps
-  encode.rs             GIF and MP4 encoding, and the atomic commit
-  ui.rs                 The framing window: hole, input region, lock/unlock
-examples/
-  root_geometry.rs      Query X with no GTK window involved
-  framing_window.rs     The smallest useful framing window
-  record.rs             Record a fixed region, no GTK window involved
-tests/
-  geometry.rs           Clipping — the part of the chain testable without a display
-  session.rs            Lifecycle policy: drift, retry, cancellation, shutdown
-  capture.rs            ffmpeg arguments and workspace ownership
-  config.rs             Defaults, round-trip, and surviving a corrupt file
-  encode.rs             Collision policy, argument shape, real GIF and MP4 encodes
+  main.rs               The binary: CLI, and picking a frontend by target
+crates/glimpse-core/    Platform-free. No gtk4, no x11rb, no objc2 — by manifest
+  src/lib.rs            Library surface, so the logic is testable without a display
+  src/geometry.rs       The capture rect, and the coordinate convention it carries
+  src/config.rs         Persisted settings: theme, format, output folder
+  src/session.rs        The recording lifecycle: pure state machine, no I/O
+  src/capture.rs        The ffmpeg recorder: owns the child, reaps on every path
+  src/worker.rs         Runs the recorder off the UI thread; dropping it reaps
+  src/encode.rs         GIF and MP4 encoding, and the atomic commit
+  tests/geometry.rs     Clipping — the part of the chain testable without a display
+  tests/session.rs      Lifecycle policy: drift, retry, cancellation, shutdown
+  tests/capture.rs      Output arguments, filter placement, workspace ownership
+  tests/config.rs       Defaults, round-trip, and surviving a corrupt file
+  tests/encode.rs       Collision policy, argument shape, real GIF and MP4 encodes
+  tests/progress_probe.rs  What ffmpeg's progress output actually looks like
+crates/glimpse-x11/     The X11 frontend: GTK4 window, punched input region
+  src/lib.rs            Frontend surface
+  src/app.rs            Application entry, startup refusals, stale-state sweeps
+  src/ui.rs             The framing window: hole, input region, lock/unlock
+  src/x11probe.rs       The X11 boundary — origin, root size, input-shape readback
+  src/geometry.rs       WidgetRect → SurfaceRect → ScreenPixelRect, with clipping
+  src/grab.rs           Rect → x11grab arguments; the input half of the seam
+  tests/grab.rs         The x11grab flags, each one a licensing commitment
+  examples/root_geometry.rs    Query X with no GTK window involved
+  examples/framing_window.rs   The smallest useful framing window
+  examples/record.rs           Record a fixed region, no GTK window involved
 data/
   glimpse.desktop       Desktop entry, installed by `make install`
 scripts/
@@ -224,6 +230,7 @@ docs/
   - [0007](docs/adr/0007-gif-and-mp4.md) — GIF and MP4 as the initial output formats
   - [0008](docs/adr/0008-settings-and-themes.md) — Settings, and what the theme is allowed to change
   - [0009](docs/adr/0009-snapshot.md) — Snapshot, and why it is not a one-frame recording
+  - [0010](docs/adr/0010-capture-providers-and-a-platform-free-core.md) — Capture providers, and a platform-free core
 <!-- END GENERATED adr-index -->
 
 ## Licence

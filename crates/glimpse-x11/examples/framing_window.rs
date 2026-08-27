@@ -1,7 +1,7 @@
 //! The smallest useful framing window.
 //!
 //! ```sh
-//! cargo run --example framing_window
+//! cargo run -p glimpse-x11 --example framing_window
 //! ```
 //!
 //! Position it over something and click "Show capture rect". The rectangle it
@@ -10,7 +10,7 @@
 //! target paints nothing (see ADR 0000).
 
 use anyhow::Result;
-use glimpse::{ui::FramingWindow, x11probe::X11Probe};
+use glimpse_x11::{ui::FramingWindow, x11probe::X11Probe};
 use gtk::prelude::*;
 use gtk4 as gtk;
 use std::rc::Rc;

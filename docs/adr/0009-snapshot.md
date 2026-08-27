@@ -23,7 +23,7 @@ That is what a split button is for: two *actions* of the same kind, not an actio
 and a preference.
 
 **A snapshot is not a session.** It does not go through
-[`session`](../../src/session.rs) at all — there is nothing to arm, no geometry to
+[`session`](../../crates/glimpse-core/src/session.rs) at all — there is nothing to arm, no geometry to
 freeze against a moving frame, no stop, no cancellation and no retryable artifact.
 It is one ffmpeg invocation and an atomic rename. Modelling it as a one-frame
 recording would mean inventing states that can never be observed.

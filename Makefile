@@ -15,6 +15,24 @@ CARGO  := cargo
 NICE   := nice -n 19
 JOBS   := -j 2
 
+# Which packages the gates cover, by platform.
+#
+# Not `--workspace` unconditionally: `glimpse-x11` depends on `gdk4-x11`, which
+# cannot build against a Quartz-backend GTK, so asking for it off Linux fails at
+# the -sys crate rather than telling you anything. And not the bare default
+# either — this workspace's default member is the binary alone, so a plain
+# `cargo test` would run zero tests and report success.
+#
+# `glimpse-core` is deliberately in both lists. It is toolkit-free by manifest
+# (ADR 0010), so it builds and tests anywhere, which is what keeps a Linux
+# assumption from quietly settling into it while a second frontend is written.
+UNAME := $(shell uname -s)
+ifeq ($(UNAME),Linux)
+  PKGS := --workspace
+else
+  PKGS := -p glimpse-core -p glimpse
+endif
+
 # Honour the usual GNU prefix conventions so a packager does not have to patch.
 PREFIX  ?= $(HOME)/.local
 BINDIR  ?= $(PREFIX)/bin
@@ -32,7 +50,7 @@ check: fmt-check lint test docs-check ## The gates CI runs, fastest-failing firs
 
 .PHONY: build
 build: ## Debug build
-	$(NICE) $(CARGO) build $(JOBS)
+	$(NICE) $(CARGO) build $(JOBS) $(PKGS)
 
 .PHONY: run
 run: ## Run Glimpse
@@ -40,7 +58,7 @@ run: ## Run Glimpse
 
 .PHONY: test
 test: ## Unit and integration tests
-	$(NICE) $(CARGO) test $(JOBS)
+	$(NICE) $(CARGO) test $(JOBS) $(PKGS)
 
 .PHONY: fmt
 fmt: ## Format
@@ -52,7 +70,7 @@ fmt-check: ## Fail if formatting is off
 
 .PHONY: lint
 lint: ## Clippy, warnings are errors
-	$(NICE) $(CARGO) clippy $(JOBS) --all-targets -- -D warnings
+	$(NICE) $(CARGO) clippy $(JOBS) $(PKGS) --all-targets -- -D warnings
 
 .PHONY: headless
 headless: ## Run Glimpse on a private X server (never touches your screen)
@@ -76,7 +94,7 @@ selftest: ## Verify geometry against a real capture — then LOOK at the PNG
 
 .PHONY: docs
 docs: ## Build the API documentation
-	$(NICE) $(CARGO) doc $(JOBS) --no-deps --document-private-items
+	$(NICE) $(CARGO) doc $(JOBS) $(PKGS) --no-deps --document-private-items
 	@echo "open target/doc/glimpse/index.html"
 
 .PHONY: demo
@@ -91,11 +109,18 @@ docs-sync: ## Regenerate generated doc sections and report any drift
 docs-check: ## Fail if the docs have drifted from the code (runs in check + CI)
 	@scripts/sync-docs.sh --check
 
+# `mkdir -p` then `install -m`, never `install -D`: -D is a GNU extension, and
+# BSD install does not create parent directories — the GNU form fails on macOS
+# with a bare "No such file or directory" and exit 71.
 .PHONY: install
 install: ## Install the binary and desktop entry under PREFIX (default ~/.local)
 	$(NICE) $(CARGO) build $(JOBS) --release
-	install -Dm755 target/release/glimpse $(DESTDIR)$(BINDIR)/glimpse
-	install -Dm644 data/glimpse.desktop $(DESTDIR)$(DATADIR)/applications/glimpse.desktop
+	mkdir -p $(DESTDIR)$(BINDIR)
+	install -m 755 target/release/glimpse $(DESTDIR)$(BINDIR)/glimpse
+ifeq ($(UNAME),Linux)
+	mkdir -p $(DESTDIR)$(DATADIR)/applications
+	install -m 644 data/glimpse.desktop $(DESTDIR)$(DATADIR)/applications/glimpse.desktop
+endif
 	@echo "installed to $(DESTDIR)$(BINDIR)/glimpse"
 	@case ":$$PATH:" in *":$(BINDIR):"*) ;; \
 	  *) echo "note: $(BINDIR) is not on your PATH" ;; esac
@@ -108,13 +133,19 @@ uninstall: ## Remove what install put down
 
 .PHONY: check-reqs
 check-reqs: ## Report missing system requirements
+	@printf '%-16s %s\n' 'platform:' '$(UNAME)'
+ifeq ($(UNAME),Linux)
 	@printf '%-16s ' 'X11 session:'; \
 	  [ "$$XDG_SESSION_TYPE" = x11 ] && echo 'yes' \
-	  || echo "NO ($${XDG_SESSION_TYPE:-unknown}) — Glimpse is X11-only by design"
+	  || echo "NO ($${XDG_SESSION_TYPE:-unknown}) — the X11 frontend needs one"
 	@printf '%-16s ' 'libgtk-4-dev:'; pkg-config --modversion gtk4 2>/dev/null || echo 'MISSING'
-	@printf '%-16s ' 'ffmpeg:'; command -v ffmpeg >/dev/null \
-	  && ffmpeg -version 2>/dev/null | awk 'NR==1' \
-	  || echo 'MISSING (needed to record)'
 	@printf '%-16s ' 'xdotool:'; command -v xdotool >/dev/null \
 	  && echo 'yes (optional — used by the click-through check)' \
 	  || echo 'missing (optional — only needed for docs/development.md checks)'
+else
+	@printf '%-16s %s\n' 'frontend:' 'NONE — no framing window is implemented for $(UNAME) yet'
+	@printf '%-16s %s\n' '' 'glimpse-core still builds and tests here; see make test'
+endif
+	@printf '%-16s ' 'ffmpeg:'; command -v ffmpeg >/dev/null \
+	  && ffmpeg -version 2>/dev/null | awk 'NR==1' \
+	  || echo 'MISSING (needed to record)'

@@ -19,12 +19,12 @@
 use std::path::PathBuf;
 
 use crate::encode::OutputFormat;
-use crate::geometry::RootPixelRect;
+use crate::geometry::ScreenPixelRect;
 
 /// What to record, fixed at arming time and never re-read afterwards.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptureRequest {
-    pub rect: RootPixelRect,
+    pub rect: ScreenPixelRect,
     pub framerate: u32,
     pub capture_mouse: bool,
     pub destination: PathBuf,

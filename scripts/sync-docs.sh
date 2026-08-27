@@ -14,7 +14,7 @@
 #
 # What is VERIFIED (hand-written, mechanically checked):
 #   * every path in the README layout block exists
-#   * every source file under src/ appears in that block
+#   * every Rust source under src/ and crates/*/ appears in that block
 #   * every `make <target>` mentioned in any .md is a real target
 #   * every relative link in the .md files resolves to a real file
 #   * every image referenced by a doc exists AND is tracked by git
@@ -78,37 +78,50 @@ p.write_text(s2)
 }
 
 # ----------------------------------------------------------------- verifiers --
-verify_layout_paths() {
-  local block missing=0 p
-  block=$(awk '/<!-- BEGIN GENERATED layout/{inb=1; next} /<!-- END GENERATED layout/{inb=0} inb' README.md)
+# Every path the README layout block names, with tree prefixes resolved.
+#
+# The block is a tree: an unindented entry ending in / opens a directory, and
+# indented entries below it are relative to that directory. Both the
+# does-it-exist check and the is-it-listed check read this, so they cannot
+# disagree about what the block says.
+layout_paths() {
+  awk '/<!-- BEGIN GENERATED layout/{inb=1; next} /<!-- END GENERATED layout/{inb=0} inb' README.md \
+    | awk '
+        /^```/ { next }
+        /^[^[:space:]]/ { if ($1 ~ /\/$/) { prefix = $1; next } else { prefix = "" ; print $1; next } }
+        /^[[:space:]]/  { if (NF) print prefix $1 }
+      '
+}
 
-  # The block is a tree: an unindented entry ending in / opens a directory, and
-  # indented entries below it are relative to that directory. Resolve them.
+verify_layout_paths() {
+  local missing=0 p
   while read -r p; do
     [[ -z "$p" || "$p" == '```' ]] && continue
     if [[ ! -e "$p" && ! -e "${p%/}" ]]; then
       fail "README layout names '$p', which does not exist"
       missing=1
     fi
-  done < <(printf '%s\n' "$block" | awk '
-    /^```/ { next }
-    /^[^[:space:]]/ { if ($1 ~ /\/$/) { prefix = $1; next } else { prefix = "" ; print $1; next } }
-    /^[[:space:]]/  { if (NF) print prefix $1 }
-  ')
+  done < <(layout_paths)
 
   (( missing )) || note "layout paths: all exist"
 }
 
+# Every Rust source in the workspace must appear in the layout block.
+#
+# Matched on the FULL resolved path, not on a basename: with one crate per
+# platform there are now several `src/geometry.rs`, and a basename match would
+# let one of them go missing while its namesake covered for it.
 verify_sources_are_documented() {
-  local f base undocumented=0
-  for f in src/*.rs; do
-    base=$(basename "$f")
-    if ! grep -q "  $base" README.md; then
-      fail "src/$base is not mentioned in the README layout block"
+  local f undocumented=0 listed
+  listed=$(layout_paths)
+  while read -r f; do
+    [[ -z "$f" ]] && continue
+    if ! printf '%s\n' "$listed" | grep -qxF "$f"; then
+      fail "$f is not mentioned in the README layout block"
       undocumented=1
     fi
-  done
-  (( undocumented )) || note "src/ coverage: every module is listed"
+  done < <(find src crates -name '*.rs' -not -path '*/target/*' 2>/dev/null | sort)
+  (( undocumented )) || note "source coverage: every module is listed"
 }
 
 verify_make_targets() {

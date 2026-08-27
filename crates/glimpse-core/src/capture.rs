@@ -3,10 +3,19 @@
 //! This is the first vertical slice through [`crate::session`]. The state machine
 //! decides *what* should happen; this module does it, and reports back.
 //!
-//! **Every flag here is derived from ffmpeg's own documentation**
-//! (`ffmpeg -h demuxer=x11grab`, <https://ffmpeg.org/ffmpeg-devices.html>), not
-//! from another project's source. That is a licensing requirement, not a style
-//! preference — see ADR 0003.
+//! ## What this module deliberately does not know
+//!
+//! It cannot name a capture backend. Which pixels get grabbed, and how the region
+//! is expressed to ffmpeg, is the frontend's business and arrives as a
+//! [`GrabCommand`] — see ADR 0010. That split is not tidiness: `x11grab` takes the
+//! region on the input as `-grab_x`/`-grab_y`, while `avfoundation` has no such
+//! option and must crop with a filter instead. Code that hard-codes either shape
+//! excludes the other platform.
+//!
+//! **Every flag this module contributes is derived from ffmpeg's own
+//! documentation** (<https://ffmpeg.org/ffmpeg.html>), not from another project's
+//! source. That is a licensing requirement, not a style preference — see ADR 0003.
+//! The same obligation applies to whoever builds the [`GrabCommand`].
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -15,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 
-use crate::geometry::RootPixelRect;
+use crate::geometry::ScreenPixelRect;
 use crate::session::CapturedVideo;
 
 /// How long ffmpeg gets to finalise the container after being asked politely,
@@ -25,74 +34,115 @@ const GRACEFUL_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Container extension for the intermediate recording.
 ///
-/// Matroska, because it carries ffv1 with `bgr0` without a pixel-format
-/// conversion — verified with `ffprobe`, which reports
-/// `codec_name=ffv1, pix_fmt=bgr0` for a captured file. x11grab's native output
-/// *is* `bgr0`, so nothing is converted on the way in and the intermediate is
-/// lossless by construction rather than by assertion (ADR 0002 explicitly refuses
-/// to call it lossless on any weaker basis).
+/// Matroska, because it carries ffv1 without a pixel-format conversion —
+/// verified with `ffprobe`, which reports `codec_name=ffv1, pix_fmt=bgr0` for a
+/// file captured from x11grab. x11grab's native output *is* `bgr0`, so nothing is
+/// converted on the way in and the intermediate is lossless by construction
+/// rather than by assertion (ADR 0002 explicitly refuses to call it lossless on
+/// any weaker basis).
+///
+/// That guarantee is per-provider, which is why the pixel format travels on
+/// [`GrabCommand::pix_fmt`] rather than being fixed here.
 const INTERMEDIATE_EXT: &str = "mkv";
 
+/// What the user asked to capture, in terms no backend is implied by.
+///
+/// A frontend turns one of these into a [`GrabCommand`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecorderConfig {
-    /// The X display, taken from the same environment the geometry came from —
-    /// never independently guessed, or ffmpeg could record a different screen
-    /// than the one the rectangle was computed against.
-    pub display: String,
-    pub rect: RootPixelRect,
-    pub framerate: u32,
+pub struct GrabRequest {
+    pub rect: ScreenPixelRect,
+    /// Capture rate. `None` asks for a single frame — a snapshot sets no rate,
+    /// and the flag that would express one differs between backends anyway.
+    pub framerate: Option<u32>,
     pub capture_mouse: bool,
 }
 
-impl RecorderConfig {
-    /// Read the display from the environment. Returns an error rather than
-    /// falling back to `:0`.
-    pub fn display_from_env() -> Result<String> {
-        std::env::var("DISPLAY").context("DISPLAY is not set; cannot record")
-    }
+/// A backend's answer to "how do I grab that rectangle?", as pure data.
+///
+/// Kept as data rather than as a spawned process so it can be asserted on
+/// without touching a screen — which is how the X11 argument construction is
+/// tested today, and the property worth keeping when a second backend lands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrabCommand {
+    /// The region this command was built to grab.
+    ///
+    /// Carried alongside the arguments rather than left implicit in them: core
+    /// has to refuse a zero-area capture, and recovering the rect by parsing
+    /// `input` back would mean core knowing each backend's flag spelling — which
+    /// is the coupling this struct exists to remove.
+    pub rect: ScreenPixelRect,
+    /// ffmpeg input arguments, ending with the input specifier itself.
+    pub input: Vec<String>,
+    /// A video filter, for backends that cannot express the region on the input.
+    ///
+    /// `None` on X11, which crops by grabbing only the region it wants. `Some`
+    /// on `avfoundation`, which captures a whole display and must crop after the
+    /// fact. This field is the entire reason [`GrabCommand`] is a struct and not
+    /// a `Vec<String>`.
+    pub filter: Option<String>,
+    /// The pixel format the source natively produces, when stating it avoids a
+    /// conversion. `None` leaves the choice to ffmpeg.
+    pub pix_fmt: Option<String>,
 }
 
-/// The ffmpeg command line, as pure data so it can be asserted on without
-/// spawning anything.
-///
-/// Options, each from `ffmpeg -h demuxer=x11grab`:
-///   `-video_size`  frame size
-///   `-framerate`   capture rate
-///   `-draw_mouse`  0 or 1, draw the pointer
-///   `-grab_x` / `-grab_y`   region origin
-///
-/// The documented `-grab_x`/`-grab_y` options are used rather than encoding the
-/// origin into the input URL, because they are explicit and cannot be mangled by
-/// a display name that already contains punctuation.
-pub fn x11grab_args(cfg: &RecorderConfig, output: &Path) -> Vec<String> {
-    let s = |v: &str| v.to_string();
-    vec![
-        s("-hide_banner"),
-        s("-loglevel"),
-        s("error"),
-        s("-y"),
-        s("-f"),
-        s("x11grab"),
-        s("-framerate"),
-        cfg.framerate.to_string(),
-        s("-video_size"),
-        cfg.rect.video_size(),
-        s("-draw_mouse"),
-        if cfg.capture_mouse { s("1") } else { s("0") },
-        s("-grab_x"),
-        cfg.rect.x.to_string(),
-        s("-grab_y"),
-        cfg.rect.y.to_string(),
-        s("-i"),
-        cfg.display.clone(),
-        // ffv1 is ffmpeg's own lossless codec; bgr0 is what x11grab produces, so
-        // stating it here keeps the pipeline conversion-free.
-        s("-c:v"),
-        s("ffv1"),
-        s("-pix_fmt"),
-        s("bgr0"),
-        output.to_string_lossy().into_owned(),
-    ]
+impl GrabCommand {
+    /// The full argument list for a recording, into the lossless intermediate.
+    ///
+    /// Options contributed here, each from ffmpeg's own documentation:
+    ///   `-c:v ffv1`    ffmpeg's own lossless codec
+    ///   `-pix_fmt`     stated only when the backend named its native format
+    pub fn recording_args(&self, output: &Path) -> Vec<String> {
+        let mut args = vec![
+            "-hide_banner".into(),
+            "-loglevel".into(),
+            "error".into(),
+            "-y".into(),
+        ];
+        args.extend(self.input.iter().cloned());
+        if let Some(filter) = &self.filter {
+            args.push("-vf".into());
+            args.push(filter.clone());
+        }
+        args.push("-c:v".into());
+        args.push("ffv1".into());
+        if let Some(pix_fmt) = &self.pix_fmt {
+            args.push("-pix_fmt".into());
+            args.push(pix_fmt.clone());
+        }
+        args.push(output.to_string_lossy().into_owned());
+        args
+    }
+
+    /// The full argument list for a single frame, written as a PNG.
+    ///
+    /// The CODEC must be stated, not just the container. `image2` is a container
+    /// whose default encoder is mjpeg, and the staged file is named `.png.part`
+    /// so ffmpeg cannot infer anything from the extension — without `-c:v png`,
+    /// Glimpse writes a JPEG into a file called `.png`. It did exactly that once
+    /// (ADR 0009).
+    pub fn snapshot_args(&self, output: &Path) -> Vec<String> {
+        let mut args = vec![
+            "-hide_banner".into(),
+            "-loglevel".into(),
+            "error".into(),
+            "-y".into(),
+        ];
+        args.extend(self.input.iter().cloned());
+        if let Some(filter) = &self.filter {
+            args.push("-vf".into());
+            args.push(filter.clone());
+        }
+        args.extend([
+            "-frames:v".into(),
+            "1".into(),
+            "-c:v".into(),
+            "png".into(),
+            "-f".into(),
+            "image2".into(),
+        ]);
+        args.push(output.to_string_lossy().into_owned());
+        args
+    }
 }
 
 /// A per-session directory holding the intermediate recording.
@@ -143,7 +193,7 @@ impl Workspace {
     }
 }
 
-/// Grab a single frame of `cfg.rect` and commit it as a PNG.
+/// Grab a single frame and commit it as a PNG.
 ///
 /// A snapshot is not a one-frame recording: there is no session, no lifecycle and
 /// nothing to stop. It is one ffmpeg invocation and an atomic rename, so it lives
@@ -152,10 +202,14 @@ impl Workspace {
 /// It does share the two rules that matter: the file is staged in the
 /// destination's own directory and renamed into place, so a reader never sees a
 /// half-written image; and a taken name is disambiguated rather than overwritten
-/// ([ADR 0005](../docs/adr/0005-gif-encoding-and-the-atomic-commit.md)).
-pub fn snapshot(cfg: &RecorderConfig, destination: &Path) -> Result<PathBuf> {
-    if !cfg.rect.is_capturable() {
-        return Err(anyhow!("nothing to capture: {}x{}", cfg.rect.w, cfg.rect.h));
+/// (ADR 0005).
+pub fn snapshot(grab: &GrabCommand, destination: &Path) -> Result<PathBuf> {
+    if !grab.rect.is_capturable() {
+        return Err(anyhow!(
+            "nothing to capture: {}x{}",
+            grab.rect.w,
+            grab.rect.h
+        ));
     }
     let dir = destination.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
@@ -164,7 +218,7 @@ pub fn snapshot(cfg: &RecorderConfig, destination: &Path) -> Result<PathBuf> {
     let staged = dir.join(format!(".glimpse-{}-snapshot.png.part", std::process::id()));
 
     let out = Command::new("ffmpeg")
-        .args(snapshot_args(cfg, &staged))
+        .args(grab.snapshot_args(&staged))
         .output()
         .context("spawning ffmpeg — is it installed?")?;
 
@@ -183,50 +237,12 @@ pub fn snapshot(cfg: &RecorderConfig, destination: &Path) -> Result<PathBuf> {
     Ok(final_path)
 }
 
-/// One frame of x11grab, written as a PNG.
-///
-/// Same documented options as the recorder — `-video_size`, `-grab_x`, `-grab_y`,
-/// `-draw_mouse` — with `-frames:v 1` instead of a framerate. The muxer is stated
-/// because the output is staged under a `.part` suffix.
-pub fn snapshot_args(cfg: &RecorderConfig, output: &Path) -> Vec<String> {
-    let s = |v: &str| v.to_string();
-    vec![
-        s("-hide_banner"),
-        s("-loglevel"),
-        s("error"),
-        s("-y"),
-        s("-f"),
-        s("x11grab"),
-        s("-video_size"),
-        cfg.rect.video_size(),
-        s("-draw_mouse"),
-        if cfg.capture_mouse { s("1") } else { s("0") },
-        s("-grab_x"),
-        cfg.rect.x.to_string(),
-        s("-grab_y"),
-        cfg.rect.y.to_string(),
-        s("-i"),
-        cfg.display.clone(),
-        s("-frames:v"),
-        s("1"),
-        // The CODEC must be stated, not just the container. `image2` is a
-        // container whose default encoder is mjpeg, and the staged file is named
-        // `.png.part` so ffmpeg cannot infer anything from the extension — without
-        // this, Glimpse writes a JPEG into a file called .png.
-        s("-c:v"),
-        s("png"),
-        s("-f"),
-        s("image2"),
-        output.to_string_lossy().into_owned(),
-    ]
-}
-
 /// Remove session directories left behind by Glimpse processes that are gone.
 ///
-/// `PR_SET_PDEATHSIG` stops a hard kill from orphaning ffmpeg, but nothing can
-/// remove the workspace on that path — deleting a directory needs code to run,
-/// and on `SIGKILL` none does. So the tidying happens at the next startup
-/// instead, which is the only moment it reliably can.
+/// `PR_SET_PDEATHSIG` stops a hard kill from orphaning ffmpeg on Linux, but
+/// nothing can remove the workspace on that path — deleting a directory needs
+/// code to run, and on `SIGKILL` none does. So the tidying happens at the next
+/// startup instead, which is the only moment it reliably can.
 ///
 /// Only directories matching Glimpse's own naming are considered, and only when
 /// their process id is no longer alive — otherwise a second Glimpse recording
@@ -270,15 +286,40 @@ pub(crate) fn stale_workspace_pid(name: &str, own_pid: u32) -> Option<u32> {
     (pid != own_pid).then_some(pid)
 }
 
-#[cfg(target_os = "linux")]
+/// Is this process still running?
+///
+/// `kill(pid, 0)` performs the permission and existence checks and delivers no
+/// signal, which POSIX documents precisely for this purpose. It is used rather
+/// than `/proc` because `/proc` is Linux-only, and the `cfg(not(linux))` fallback
+/// this replaced answered "alive" unconditionally — which meant
+/// [`sweep_stale_workspaces`] found every candidate alive and removed **nothing**
+/// on macOS, leaking a temp directory per killed session, permanently and
+/// silently.
+///
+/// `EPERM` counts as alive: the process exists, it is simply not ours to signal.
+#[cfg(unix)]
 pub(crate) fn process_is_alive(pid: u32) -> bool {
-    std::path::Path::new(&format!("/proc/{pid}")).exists()
+    // `kill` reserves low pids for broadcast: 0 means "every process in my own
+    // process group", so `kill(0, 0)` succeeds and would report a `glimpse-0-*`
+    // directory alive forever. No Glimpse instance ever has pid 0, so answer
+    // directly rather than asking. (`-1`, the other broadcast value, cannot
+    // arrive here — the pid is parsed as `u32`.)
+    if pid == 0 {
+        return false;
+    }
+    // SAFETY: `kill` with signal 0 sends nothing and only inspects process state.
+    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if rc == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(unix))]
 pub(crate) fn process_is_alive(_pid: u32) -> bool {
-    // Without /proc, assume alive: leaving a directory behind is a much smaller
-    // mistake than deleting a running session's recording.
+    // Windows has no `kill(pid, 0)`; until a frontend exists there, assume alive.
+    // Leaving a directory behind is a much smaller mistake than deleting a
+    // running session's recording.
     true
 }
 
@@ -291,17 +332,17 @@ pub struct Recorder {
 }
 
 impl Recorder {
-    pub fn start(cfg: &RecorderConfig, workspace: Workspace) -> Result<Self> {
-        if !cfg.rect.is_capturable() {
+    pub fn start(grab: &GrabCommand, workspace: Workspace) -> Result<Self> {
+        if !grab.rect.is_capturable() {
             return Err(anyhow!(
                 "refusing to record a {}x{} region",
-                cfg.rect.w,
-                cfg.rect.h
+                grab.rect.w,
+                grab.rect.h
             ));
         }
         let output = workspace.video_path();
         let mut command = Command::new("ffmpeg");
-        command.args(x11grab_args(cfg, &output));
+        command.args(grab.recording_args(&output));
         die_with_parent(&mut command);
         let child = command
             // stdin stays open: writing `q` to it is the documented way to ask
@@ -393,10 +434,10 @@ impl Recorder {
 
 /// Ask the kernel to kill ffmpeg if Glimpse dies without cleaning up.
 ///
-/// `Drop` covers every exit path the process controls, but not `SIGKILL` or an
-/// X server disconnect — and that gap is not theoretical. Killing Glimpse during
-/// development left ffmpeg processes still recording into directories that had
-/// already been deleted.
+/// `Drop` covers every exit path the process controls, but not `SIGKILL` or a
+/// display server disconnect — and that gap is not theoretical. Killing Glimpse
+/// during development left ffmpeg processes still recording into directories that
+/// had already been deleted.
 ///
 /// Gated on **Linux specifically, not `unix`**. `PR_SET_PDEATHSIG` is a Linux
 /// interface; macOS is also `unix` and does not have it, so `cfg(unix)` would
@@ -419,6 +460,12 @@ fn die_with_parent(command: &mut Command) {
     }
 }
 
+/// No equivalent exists off Linux, and this is a real gap rather than a stub.
+///
+/// macOS has no `PR_SET_PDEATHSIG`. `SIGKILL`ing Glimpse there orphans a
+/// recording ffmpeg, which keeps writing into a workspace nobody will collect
+/// until the next start-up sweep — which is precisely why
+/// [`process_is_alive`] had to stop answering "alive" unconditionally.
 #[cfg(not(target_os = "linux"))]
 fn die_with_parent(_command: &mut Command) {}
 
@@ -436,7 +483,14 @@ impl Drop for Recorder {
 
 #[cfg(test)]
 mod tests {
-    use super::stale_workspace_pid;
+    use super::*;
+
+    const RECT: ScreenPixelRect = ScreenPixelRect {
+        x: 0,
+        y: 0,
+        w: 640,
+        h: 480,
+    };
 
     #[test]
     fn recognises_our_own_workspace_naming() {
@@ -463,5 +517,75 @@ mod tests {
         ] {
             assert_eq!(stale_workspace_pid(name, 999), None, "{name}");
         }
+    }
+
+    /// The regression that made the sweep a no-op off Linux: the old
+    /// `cfg(not(linux))` stub answered "alive" for everything, so
+    /// [`sweep_stale_workspaces`] skipped every candidate and removed nothing.
+    ///
+    /// A reaped child is the only pid a test can call dead without racing
+    /// something else on the machine.
+    #[cfg(unix)]
+    #[test]
+    fn liveness_distinguishes_a_live_pid_from_a_dead_one() {
+        assert!(
+            process_is_alive(std::process::id()),
+            "this process is running"
+        );
+
+        let mut child = Command::new("true").spawn().expect("spawn /usr/bin/true");
+        let pid = child.id();
+        child.wait().expect("reap it");
+        assert!(
+            !process_is_alive(pid),
+            "a reaped child must read as dead, or the sweep never collects anything"
+        );
+    }
+
+    /// `kill` treats 0 as "my whole process group", so asking about it succeeds
+    /// and a `glimpse-0-*` directory would never be swept.
+    #[cfg(unix)]
+    #[test]
+    fn pid_zero_is_not_mistaken_for_a_live_process() {
+        assert!(!process_is_alive(0));
+    }
+
+    #[test]
+    fn a_filter_is_only_emitted_when_the_backend_asked_for_one() {
+        let base = GrabCommand {
+            rect: RECT,
+            input: vec!["-i".into(), "src".into()],
+            filter: None,
+            pix_fmt: None,
+        };
+        assert!(!base
+            .recording_args(Path::new("o.mkv"))
+            .contains(&"-vf".to_string()));
+
+        let cropped = GrabCommand {
+            filter: Some("crop=10:20:30:40".into()),
+            ..base
+        };
+        let args = cropped.recording_args(Path::new("o.mkv"));
+        let vf = args
+            .iter()
+            .position(|a| a == "-vf")
+            .expect("filter emitted");
+        assert_eq!(args[vf + 1], "crop=10:20:30:40");
+    }
+
+    /// `image2`'s default encoder is mjpeg and the staged name is `.png.part`,
+    /// so the codec has to be stated or a JPEG lands in a file called `.png`.
+    #[test]
+    fn a_snapshot_always_states_the_png_codec() {
+        let grab = GrabCommand {
+            rect: RECT,
+            input: vec!["-i".into(), "src".into()],
+            filter: None,
+            pix_fmt: None,
+        };
+        let args = grab.snapshot_args(Path::new("out.png.part"));
+        let c = args.iter().position(|a| a == "-c:v").expect("codec stated");
+        assert_eq!(args[c + 1], "png");
     }
 }

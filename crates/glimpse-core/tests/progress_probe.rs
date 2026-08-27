@@ -2,7 +2,7 @@
 //! the failure this guards against is a bar that renders confidently and means
 //! nothing.
 
-use glimpse::encode::{encode_reporting, Canceller, OutputFormat, Progress};
+use glimpse_core::encode::{encode_reporting, Canceller, OutputFormat, Progress};
 use std::path::{Path, PathBuf};
 
 fn ffmpeg_available() -> bool {
