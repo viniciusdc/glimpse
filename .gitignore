@@ -6,3 +6,12 @@
 /*.mp4
 /*.webm
 /*.mkv
+
+# Screenshots and self-test grabs, same scoping and a sharper reason: these are
+# pictures of somebody's screen. AGENTS.md forbids attaching one to a pull
+# request, an issue or a commit, and the README has no screenshot for the same
+# reason — so the format they arrive in should not be committable from the
+# working root by accident. Every tracked image lives in docs/assets.
+/*.png
+/*.jpg
+/*.jpeg
