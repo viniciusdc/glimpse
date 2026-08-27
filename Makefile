@@ -82,8 +82,8 @@ selftest-headless: ## Geometry + input-region self-test, off-screen
 
 .PHONY: smoke
 smoke: ## Full record -> GIF and record -> MP4, off-screen
-	@scripts/headless.sh env GLIMPSE_SELFTEST=record $(NICE) $(CARGO) run $(JOBS)
-	@scripts/headless.sh env GLIMPSE_SELFTEST=record-mp4 $(NICE) $(CARGO) run $(JOBS)
+	@scripts/smoke.sh record $(NICE) $(CARGO) run $(JOBS)
+	@scripts/smoke.sh record-mp4 $(NICE) $(CARGO) run $(JOBS)
 
 .PHONY: selftest
 selftest: ## Verify geometry against a real capture — then LOOK at the PNG

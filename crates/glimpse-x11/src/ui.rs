@@ -1041,6 +1041,16 @@ impl FramingWindow {
             }
             let me = self.clone();
             glib::timeout_add_seconds_local_once(2, move || {
+                // State the mode, exactly as the snapshot branch does. The split
+                // button REMEMBERS what you last chose and that choice persists
+                // to config.toml (ADR 0009), so without this the record smoke
+                // test does whatever the developer last clicked in the UI. With
+                // `mode = "snapshot"` persisted it pressed Snapshot, which does
+                // not go through the session machine, so the state stayed Idle,
+                // nothing was recorded, and the run still exited 0 — a smoke
+                // test that had quietly stopped testing recording and could not
+                // say so.
+                me.mode.set(Mode::Record);
                 println!("[smoke] pressing Record");
                 me.on_record_clicked();
                 println!("[smoke] state: {:?}", me.state());
