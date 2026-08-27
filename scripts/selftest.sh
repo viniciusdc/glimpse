@@ -31,6 +31,13 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+# `headless.sh` exits 97 when it refused and the command never ran. Distinguishing
+# that from the command's own failure is the whole reason it has a reserved
+# status: reporting "the app exited 1" about an app that was never started is the
+# same defect this file exists to prevent, one layer up.
+readonly RUNNER_REFUSED=97
+
+
 PNG=/tmp/glimpse-selftest.png
 runner=()
 if [[ ${1-} == --headless ]]; then
@@ -69,6 +76,10 @@ fail() {
   exit 1
 }
 
+if (( status == RUNNER_REFUSED )); then
+  fail "the off-screen runner refused; the app was never started" \
+       "its reason is printed above"
+fi
 (( status == 0 )) || fail "the app exited $status"
 
 # The report itself. Its absence means the run died before the self-test ran —

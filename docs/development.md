@@ -156,6 +156,12 @@ compositor:
   of what is behind Glimpse. Geometry and the input region are still verified
   exactly, because both are checked against the X server rather than by eye.
 
+When `headless.sh` refuses — bad usage, a missing tool, a display already in use,
+or a server that never came up — it exits **97**, and the command it was given is
+never run. `selftest.sh` and `smoke.sh` recognise that status and say the runner
+refused rather than blaming the program for a failure it was not present for. Any
+other status is the command's own.
+
 Everything else behaves identically: geometry, the input-region hole, recording,
 encoding, collision handling and cleanup.
 
