@@ -2,8 +2,11 @@
 #
 # Record end to end, off-screen, and turn the result into an exit status.
 #
-#   scripts/smoke.sh record       record -> GIF
-#   scripts/smoke.sh record-mp4   record -> MP4
+#   scripts/smoke.sh record         record -> GIF
+#   scripts/smoke.sh record-mp4     record -> MP4
+#   scripts/smoke.sh snapshot       press Snapshot, commit a PNG
+#   scripts/smoke.sh cancel-encode  cancel mid-encode, preserve, reap
+#   scripts/smoke.sh retry          re-encode a preserved capture
 #
 # WHY THIS EXISTS. The smoke test drives Record and Stop through the same code
 # path the button uses, prints the states it passed through, and always exited 0
@@ -62,13 +65,62 @@ fi
 
 grep -q '\[smoke\]' "$log" || fail "the smoke harness never ran"
 
-# Arming is the half a wrong button silently skips.
-grep -q '\[smoke\] state: Recording' "$log" \
-  || fail "Record did not arm a recording" "$(grep '\[smoke\] state:' "$log" || true)"
+# Per-journey assertions. `Recording` then `Completed` is the record path and
+# means nothing for the others: a snapshot never enters the session machine at
+# all, and cancel-encode is a success precisely when it does NOT complete.
+# Asserting the record shape everywhere would have made three journeys either
+# permanently red or trivially green.
+want() {
+  grep -q "$1" "$log" || fail "$2" "$(grep '\[smoke\]' "$log" || true)"
+}
 
-# And finishing is the half a broken encode silently skips.
-grep -q '\[smoke\] final state: Completed' "$log" \
-  || fail "the recording did not complete" "$(grep '\[smoke\] final state:' "$log" || true)"
+case "$mode" in
+  record|record-mp4)
+    # Arming is the half a wrong button silently skips.
+    want '\[smoke\] state: Recording'        "Record did not arm a recording"
+    # And finishing is the half a broken encode silently skips.
+    want '\[smoke\] final state: Completed'  "the recording did not complete"
+    echo
+    echo "smoke ($mode): armed a real recording and completed it."
+    ;;
 
-echo
-echo "smoke ($mode): armed a real recording and completed it."
+  snapshot)
+    # A snapshot is deliberately not a session (ADR 0009), so there is no state
+    # to assert. What matters is that it committed a file: `saved <path>` is the
+    # success text and anything else in that slot is the error.
+    want '\[smoke\] pressing Snapshot'       "the Snapshot button was never pressed"
+    want '\[smoke\] status: saved '          "the snapshot did not commit a file"
+    echo
+    echo "smoke ($mode): pressed Snapshot and committed a file."
+    ;;
+
+  cancel-encode)
+    # ADR 0002's durability guarantee: cancelling mid-encode must reach
+    # Cancelled and must not leave an ffmpeg behind. Checking the state alone
+    # would pass while a child kept running into a deleted directory.
+    want '\[smoke\] state before cancel: Encoding' \
+         "the cancel did not land during an encode, so nothing was tested"
+    want '\[smoke\] state after cancel:  Cancelled' \
+         "cancelling mid-encode did not reach Cancelled"
+    if [[ "$(grep -c '\[smoke\] ffmpeg alive: 0' "$log")" -lt 1 ]]; then
+      fail "an ffmpeg survived the cancel" "$(grep 'ffmpeg alive' "$log" || true)"
+    fi
+    echo
+    echo "smoke ($mode): cancelled mid-encode, reached Cancelled, reaped the child."
+    ;;
+
+  retry)
+    # The other half of ADR 0002: a preserved capture is re-encodable without
+    # recording again. `retry visible: true` is the UI half, `after retry:
+    # Completed` is the one that proves it actually re-encoded.
+    want '\[smoke\] retry visible: true'     "no retry was offered for a preserved capture"
+    want '\[smoke\] after retry: Completed'  "the retry did not produce a finished encode"
+    echo
+    echo "smoke ($mode): re-encoded a preserved capture without recording again."
+    ;;
+
+  *)
+    fail "unknown journey '$mode'" \
+         "add its assertions here rather than letting it pass unchecked"
+    ;;
+esac

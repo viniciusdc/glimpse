@@ -51,7 +51,7 @@ help: ## List the development commands
 	  | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: check
-check: fmt-check lint test docs-check ## The gates CI runs, fastest-failing first
+check: fmt-check lint test docs-check check-journeys ## The gates CI runs, fastest-failing first
 
 .PHONY: build
 build: ## Debug build
@@ -85,10 +85,27 @@ headless: ## Run Glimpse on a private X server (never touches your screen)
 selftest-headless: ## Geometry + input-region self-test, off-screen
 	@scripts/selftest.sh --headless $(NICE) $(CARGO) run $(JOBS)
 
+# Every journey the app implements, driven through the buttons a user presses.
+#
+# `snapshot`, `cancel-encode` and `retry` used to be implemented and run by
+# nothing. They are the durability guarantees ADR 0002 was written for, and the
+# state machine covers them as policy while nothing checked the UI was wired to
+# that policy. `make journeys` is what stops them drifting back out;
+# `scripts/check-journeys.sh` is what stops a new one being added unwired.
 .PHONY: smoke
 smoke: ## Full record -> GIF and record -> MP4, off-screen
 	@scripts/smoke.sh record $(NICE) $(CARGO) run $(JOBS)
 	@scripts/smoke.sh record-mp4 $(NICE) $(CARGO) run $(JOBS)
+
+.PHONY: journeys
+journeys: smoke ## Every user journey off-screen, including the durability paths
+	@scripts/smoke.sh snapshot $(NICE) $(CARGO) run $(JOBS)
+	@scripts/smoke.sh cancel-encode $(NICE) $(CARGO) run $(JOBS)
+	@scripts/smoke.sh retry $(NICE) $(CARGO) run $(JOBS)
+
+.PHONY: check-journeys
+check-journeys: ## Fail if a journey exists that nothing drives
+	@scripts/check-journeys.sh
 
 .PHONY: selftest
 selftest: ## Verify geometry against a real capture — then LOOK at the PNG
