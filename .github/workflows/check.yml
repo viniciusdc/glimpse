@@ -88,6 +88,24 @@ jobs:
           restore-keys: |
             brew-${{ runner.os }}-${{ runner.arch }}-
 
+      # The runner image ships aws/tap, and Homebrew now declines to load anything
+      # from an untrusted tap. That prints a long notice on every run.
+      #
+      # Trust it by name. NOT HOMEBREW_NO_REQUIRE_TAP_TRUST=1, which Homebrew
+      # itself offers and which switches the check off for everything, including
+      # taps a future runner image adds. Naming this one keeps that: if the image
+      # gains another tap, the notice comes back and somebody decides about it,
+      # which is the check working rather than a nuisance to be silenced.
+      #
+      # Nothing here installs from it — ffmpeg and gtk4 both resolve to
+      # homebrew/core via ghcr.io, confirmed in the run logs — so this only
+      # quiets the notice. `|| true` because the image's taps are not ours to
+      # depend on, and a missing one should not fail the build.
+      - name: Trust the taps the runner image ships
+        run: |
+          brew trust --tap aws/tap || true
+          echo "trusted taps:"; brew trust --json v1 2>/dev/null || echo "  (none recorded)"
+
       - name: Install system dependencies if the image lacks them
         run: |
           need=()
