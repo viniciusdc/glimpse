@@ -95,12 +95,22 @@ impl AvfCapture {
         // the same reason x11grab states `-draw_mouse`: a setting the user can
         // toggle should not depend on what the backend happens to prefer.
         //
-        // NOT VERIFIED to take effect. The obvious evidence — ffmpeg logging
-        // "Configuration of video device failed, falling back to default" — turned
-        // out to be emitted with no options at all, so it says nothing about this
-        // flag. A direct test was attempted and was inconclusive: the screen
-        // changes far faster than a pointer-sized difference, so the measurement
-        // drowned. Left stated and honest rather than silently omitted.
+        // **MEASURED TO BE IGNORED**, and ignored in the OFF direction:
+        // avfoundation never draws the pointer, whatever this says. Against a
+        // static window with the pointer parked in it and a cursor provably
+        // rendered there, three runs gave a noise floor of 0 and a signal of 0,
+        // and the frame was an exact match for a cursor-free reference capture
+        // (1.2e7 differing pixels against a with-cursor one).
+        //
+        // It is still emitted, because the cost is one argument and a future
+        // ffmpeg that honours it would then work without a code change. What is
+        // NOT acceptable is the silence: `capture_mouse` is a user-facing toggle
+        // that persists to `config.toml`, and on this backend it does nothing.
+        // The user sees a switch that flips and a recording that never changes.
+        //
+        // `GrabCommand` has no channel for "I could not honour this", so core
+        // cannot know and neither can the UI. That gap now has a confirmed
+        // instance behind it rather than a suspected one — see issue #1.
         input.push(s("-capture_cursor"));
         input.push(if request.capture_mouse {
             s("1")
