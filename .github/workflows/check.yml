@@ -62,6 +62,22 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Homebrew's bottle downloads, not its Cellar. Restoring a poured Cellar
+      # would mean restoring symlinks and receipts that brew expects to own, and
+      # a half-restored prefix fails in ways that read as a broken formula. The
+      # download half is the part worth caching anyway: gtk4 alone is a 29MB
+      # bottle and pulls 16 more.
+      #
+      # Keyed on the workflow file, so changing which packages are installed
+      # invalidates it rather than silently restoring the old set.
+      - name: Cache Homebrew downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: brew-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/check.yml') }}
+          restore-keys: |
+            brew-${{ runner.os }}-${{ runner.arch }}-
+
       # ffmpeg for the same reason as the Linux job: the media tests self-skip
       # without it, and a suite that skips looks exactly like a suite that
       # passes.
@@ -133,8 +149,24 @@ jobs:
       # Measured: installing ffmpeg unconditionally cost 109s of a 189s job — more
       # than clippy and the tests combined. Ask before paying: the runner image
       # may already have it, and if it does this step is seconds.
+      # The downloaded .debs. apt deletes them after a successful install by
+      # default, so the step below keeps them explicitly; without that this
+      # cache would save an empty directory and quietly do nothing.
+      - name: Cache apt archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/check.yml') }}
+          restore-keys: |
+            apt-${{ runner.os }}-
+
       - name: Install system dependencies
         run: |
+          # Keep the .debs so the cache above has something to save, and let apt
+          # find any the cache restored.
+          sudo rm -f /etc/apt/apt.conf.d/docker-clean
+          echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
+            | sudo tee /etc/apt/apt.conf.d/99keep-debs >/dev/null
           need=()
           pkg-config --exists gtk4 || need+=(libgtk-4-dev)
           command -v ffmpeg >/dev/null || need+=(ffmpeg)
