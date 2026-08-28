@@ -26,11 +26,16 @@ JOBS   := -j 2
 # `glimpse-core` is deliberately in both lists. It is toolkit-free by manifest
 # (ADR 0010), so it builds and tests anywhere, which is what keeps a Linux
 # assumption from quietly settling into it while a second frontend is written.
+#
+# `glimpse-macos` is in both too, and for a related reason: turning a rectangle
+# into avfoundation arguments is string building, so Linux CI checks the macOS
+# argument construction. It picks up AppKit, and stops being portable, when the
+# window model lands (ADR 0011).
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Linux)
   PKGS := --workspace
 else
-  PKGS := -p glimpse-core -p glimpse
+  PKGS := -p glimpse-core -p glimpse -p glimpse-macos
 endif
 
 # Honour the usual GNU prefix conventions so a packager does not have to patch.
