@@ -152,8 +152,22 @@ jobs:
     name: User journeys
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      # GTK prints, verbatim: "If you are attempting to run GTK without a11y
+      # support, GTK_A11Y should be set to 'none'". There is no accessibility
+      # bus on a CI runner and nothing here needs one, so take the advice rather
+      # than reading the warning on every run and learning to skim past it.
+      GTK_A11Y: none
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cache apt archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/check.yml') }}
+          restore-keys: |
+            apt-${{ runner.os }}-
 
       # Xvfb AND x11-utils. `headless.sh` refuses without xdpyinfo rather than
       # proceeding, because its "is this display already in use" guard is an
@@ -161,6 +175,11 @@ jobs:
       # guard silently pass.
       - name: Install system dependencies
         run: |
+          # Keep the .debs so the cache above has something to save, and let apt
+          # find any the cache restored.
+          sudo rm -f /etc/apt/apt.conf.d/docker-clean
+          echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
+            | sudo tee /etc/apt/apt.conf.d/99keep-debs >/dev/null
           need=()
           pkg-config --exists gtk4 || need+=(libgtk-4-dev)
           command -v ffmpeg   >/dev/null || need+=(ffmpeg)
@@ -186,6 +205,15 @@ jobs:
       - name: Self-test, off-screen
         run: make selftest-headless
 
+      # `libEGL warning: DRI3 error` on Xvfb is expected and deliberately not
+      # silenced. Xvfb has no DRI3, so GSK falls back to software rendering, and
+      # the warning is the fallback announcing itself rather than a failure.
+      #
+      # It could be removed with GSK_RENDERER=cairo, and that is exactly why it
+      # is not: the shipping app uses the GL renderer, and a self-test that
+      # renders through a different one is checking something that does not
+      # ship. Noise in a log is a smaller cost than a check that quietly moved.
+      #
       # Record to GIF, record to MP4, snapshot, cancel mid-encode, and retry a
       # preserved capture. Each drives the same buttons a user presses.
       - name: Every user journey, off-screen
