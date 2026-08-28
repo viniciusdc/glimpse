@@ -1,13 +1,22 @@
-//! The macOS capture backend of Glimpse.
+//! The macOS side of Glimpse.
 //!
-//! Today this is argument construction and nothing else: a `ScreenPixelRect`
-//! becomes an `avfoundation` invocation that `glimpse-core` can spawn. There is
-//! no window model here yet, and no AppKit dependency, which is why the crate
-//! builds and its tests run on Linux CI as well.
+//! Two halves, split by what needs a toolkit:
 //!
-//! The frame that will eventually produce those rectangles is described in
+//! * [`grab`] and [`geometry`] are plain Rust. Turning a rectangle into
+//!   `avfoundation` arguments is string building, and the AppKit coordinate flip
+//!   is arithmetic, so both compile and are tested on every platform. That is
+//!   deliberate — it means Linux CI guards the two things most likely to be
+//!   silently wrong on a machine nobody is looking at.
+//! * [`window`] needs AppKit and GTK, and exists only on macOS.
+//!
+//! The frame is several windows rather than one, because GTK cannot make a
+//! covered region click-through — see
 //! [ADR 0011](../docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md).
 
+pub mod geometry;
 pub mod grab;
+
+#[cfg(target_os = "macos")]
+pub mod window;
 
 pub use grab::AvfCapture;

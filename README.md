@@ -180,9 +180,11 @@ crates/glimpse-core/    Platform-free. No gtk4, no x11rb, no objc2 — by manife
   tests/config.rs       Defaults, round-trip, and surviving a corrupt file
   tests/encode.rs       Collision policy, argument shape, real GIF and MP4 encodes
   tests/progress_probe.rs  What ffmpeg's progress output actually looks like
-crates/glimpse-macos/   The macOS capture backend. No AppKit yet, so it builds anywhere
-  src/lib.rs            Backend surface
+crates/glimpse-macos/   The macOS side: capture backend, and the frame
+  src/lib.rs            Surface, split by what needs a toolkit
   src/grab.rs           Rect → avfoundation arguments, and the screen device lookup
+  src/geometry.rs       The AppKit → capture-rect flip. No AppKit, so tested everywhere
+  src/window.rs         Reaching through GTK to the NSWindow; frame composition
   examples/record.rs    Record a fixed region end to end, no window involved
 crates/glimpse-x11/     The X11 frontend: GTK4 window, punched input region
   src/lib.rs            Frontend surface
