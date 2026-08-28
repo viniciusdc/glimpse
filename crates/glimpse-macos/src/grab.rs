@@ -102,7 +102,11 @@ impl AvfCapture {
         // changes far faster than a pointer-sized difference, so the measurement
         // drowned. Left stated and honest rather than silently omitted.
         input.push(s("-capture_cursor"));
-        input.push(if request.capture_mouse { s("1") } else { s("0") });
+        input.push(if request.capture_mouse {
+            s("1")
+        } else {
+            s("0")
+        });
 
         // Omitted entirely for a single frame; a snapshot has no capture rate.
         if let Some(fps) = request.framerate {
@@ -245,7 +249,8 @@ mod tests {
     /// can return an audio index that happens to sit on a matching line.
     #[test]
     fn parsing_stops_before_the_audio_devices() {
-        let with_audio_screen = format!("{LISTING}[AVFoundation indev @ 0x1] [7] Capture screen 9\n");
+        let with_audio_screen =
+            format!("{LISTING}[AVFoundation indev @ 0x1] [7] Capture screen 9\n");
         assert_eq!(
             screen_device_index(&with_audio_screen).as_deref(),
             Some("2"),
@@ -294,7 +299,11 @@ mod tests {
     #[test]
     fn the_pixel_format_is_requested_and_declared_consistently() {
         let cmd = AvfCapture::new("2").grab(&request(Some(15)));
-        let i = cmd.input.iter().position(|a| a == "-pix_fmt").expect("pix_fmt");
+        let i = cmd
+            .input
+            .iter()
+            .position(|a| a == "-pix_fmt")
+            .expect("pix_fmt");
         assert_eq!(cmd.input[i + 1], "bgr0");
         assert_eq!(cmd.pix_fmt.as_deref(), Some("bgr0"));
     }
@@ -302,21 +311,33 @@ mod tests {
     #[test]
     fn a_snapshot_sets_no_capture_rate() {
         let cmd = AvfCapture::new("2").grab(&request(None));
-        assert!(!cmd.input.iter().any(|a| a == "-framerate"), "{:?}", cmd.input);
+        assert!(
+            !cmd.input.iter().any(|a| a == "-framerate"),
+            "{:?}",
+            cmd.input
+        );
     }
 
     #[test]
     fn the_mouse_flag_is_explicit_either_way() {
         let backend = AvfCapture::new("2");
         let off = backend.grab(&request(Some(15)));
-        let i = off.input.iter().position(|a| a == "-capture_cursor").unwrap();
+        let i = off
+            .input
+            .iter()
+            .position(|a| a == "-capture_cursor")
+            .unwrap();
         assert_eq!(off.input[i + 1], "0");
 
         let on = backend.grab(&GrabRequest {
             capture_mouse: true,
             ..request(Some(15))
         });
-        let i = on.input.iter().position(|a| a == "-capture_cursor").unwrap();
+        let i = on
+            .input
+            .iter()
+            .position(|a| a == "-capture_cursor")
+            .unwrap();
         assert_eq!(on.input[i + 1], "1");
     }
 }

@@ -69,8 +69,13 @@ fn main() -> Result<()> {
     println!("captured  : {} ({bytes} bytes)", video.path.display());
 
     let destination = std::env::temp_dir().join("glimpse-macos-example.gif");
-    let out = encode(&video.path, &destination, OutputFormat::Gif, &Canceller::new())
-        .context("encoding the capture to GIF")?;
+    let out = encode(
+        &video.path,
+        &destination,
+        OutputFormat::Gif,
+        &Canceller::new(),
+    )
+    .context("encoding the capture to GIF")?;
     let gif_bytes = std::fs::metadata(&out)?.len();
     println!("encoded   : {} ({gif_bytes} bytes)", out.display());
 
