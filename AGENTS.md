@@ -66,16 +66,33 @@ session — see [`docs/development.md`](docs/development.md#working-off-screen).
 
 ## Scope discipline
 
-v0.1 is GIF-only, X11-only, ffmpeg-only. Wayland is not a missing backend, it is
-a different interaction model — see
+Glimpse records GIF and MP4 and snapshots PNG, through ffmpeg, and the only
+frontend that exists is X11. Wayland is not a missing backend, it is a different
+interaction model — see
 [ADR 0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md).
 
-macOS is a different case, and is being worked towards
-([ADR 0010](docs/adr/0010-capture-providers-and-a-platform-free-core.md)): the
-core is split out and platform-free, and the seam between core and a frontend is
-`GrabCommand`, plain data. There is still **no `CaptureProvider` trait**, and
-writing one now is early — the macOS backend has not captured a single verified
-frame yet, so any interface would be shaped around the only backend that exists.
+macOS is a different case and is being worked towards
+([ADR 0010](docs/adr/0010-capture-providers-and-a-platform-free-core.md)). The
+core is split out and platform-free; the seam between core and a backend is
+`GrabCommand`, plain data. `glimpse-macos` records end to end, so the reason this
+paragraph used to give for not writing a `CaptureProvider` trait — that no macOS
+frame had been verified yet — has expired.
+
+**There is still no `CaptureProvider` trait, and the reason is now the durable
+one:** both backends are selected at compile time, so a trait would buy no
+dispatch. That is ADR 0010's own argument, and it does not weaken as macOS
+matures. Do not read the expired precondition as a gate that has since opened.
+
+What is still missing on macOS is a *frontend* — there is no window, so the binary
+refuses. The window model is decided in
+[ADR 0011](docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md).
+
+**Do not offer a setting the backend cannot honour.** avfoundation ignores
+`-capture_cursor`, measured, so the macOS frontend does not show the Capture
+pointer switch — see
+[ADR 0012](docs/adr/0012-a-setting-a-backend-cannot-honour.md). A switch that
+flips, persists and changes nothing is the same failure as a file that lies about
+its contents.
 
 ## Before opening a PR
 

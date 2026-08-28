@@ -118,7 +118,33 @@ Glimpse's own naming and only dead process ids
 
 ## Next
 
-Nothing is queued. The product does what it set out to do: frame a region,
+**macOS.** Not a candidate any more — it is the work in progress. `glimpse-core`
+and `glimpse-macos` build and are tested there, and macOS records end to end
+through the backend's example. What is missing is a *frontend*: there is no
+window, so the binary refuses with an explanation.
+
+The window model is decided in
+[ADR 0011](adr/0011-why-the-macos-frame-is-more-than-one-window.md) — a header
+window over four border strips, because GTK on macOS cannot make a covered region
+click-through even though AppKit can. `addChildWindow:` moves them as one; resize
+does not propagate and has a `setFrame:` trap recorded. Whether a hand-written
+four-strip resize shears visibly needs a frame that exists, and is the one
+question a spike cannot answer.
+
+Two things are known to be needed alongside it and are not written:
+
+- **`die_with_parent` is a no-op off Linux**, so `SIGKILL` orphans a recording
+  ffmpeg on macOS. Harmless while macOS could not record; reachable now that it
+  can. `kqueue`'s `NOTE_EXIT` is the analogue of `PR_SET_PDEATHSIG`.
+- **Packaging is undecided.** GTK is dynamically linked, and on macOS it comes
+  from Homebrew at a prefix that differs by architecture; Screen Recording
+  permission attaches to a bundle identifier a bare binary does not have. That
+  decision shapes what the frontend is built into, so it wants making before the
+  frontend, not after. Release artifacts and `install.sh` are `linux-x86_64` only
+  today, and `install.sh` *constructs* the name the release workflow *writes* with
+  nothing verifying the two agree.
+
+For everything else, the product does what it set out to do: frame a region,
 record it to GIF or MP4, snapshot it, and refuse to hand over a file that is
 quietly wrong.
 

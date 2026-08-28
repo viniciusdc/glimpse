@@ -238,6 +238,7 @@ docs/
   - [0009](docs/adr/0009-snapshot.md) — Snapshot, and why it is not a one-frame recording
   - [0010](docs/adr/0010-capture-providers-and-a-platform-free-core.md) — Capture providers, and a platform-free core
   - [0011](docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md) — Why the macOS frame is more than one window
+  - [0012](docs/adr/0012-a-setting-a-backend-cannot-honour.md) — A setting a backend cannot honour is not offered
 <!-- END GENERATED adr-index -->
 
 ## Licence
