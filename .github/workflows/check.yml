@@ -78,12 +78,12 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
-      - run: cargo clippy --locked -p glimpse-core -p glimpse --all-targets -- -D warnings
+      - run: cargo clippy --locked -p glimpse-core -p glimpse -p glimpse-macos --all-targets -- -D warnings
 
       - name: Test
         run: |
           set -o pipefail
-          cargo test --locked -p glimpse-core -p glimpse -- --nocapture 2>&1 | tee test.log
+          cargo test --locked -p glimpse-core -p glimpse -p glimpse-macos -- --nocapture 2>&1 | tee test.log
       - name: Confirm the media tests were not skipped
         run: |
           if grep -q 'skipping: ffmpeg not installed' test.log; then

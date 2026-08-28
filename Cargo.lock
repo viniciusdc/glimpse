@@ -326,6 +326,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "glimpse-macos"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "glimpse-core",
+]
+
+[[package]]
 name = "glimpse-x11"
 version = "0.1.0"
 dependencies = [

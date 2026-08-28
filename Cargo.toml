@@ -16,6 +16,10 @@ glimpse-core = { path = "crates/glimpse-core" }
 [target.'cfg(target_os = "linux")'.dependencies]
 glimpse-x11 = { path = "crates/glimpse-x11" }
 
+# The capture backend exists before the frontend does. It is not wired into the
+# binary yet — there is no window to produce a rectangle — so `glimpse-macos` is
+# built and tested as its own package rather than depended on here.
+
 [workspace]
 members = ["crates/*"]
 

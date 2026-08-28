@@ -1,0 +1,15 @@
+[package]
+name = "glimpse-macos"
+version = "0.1.0"
+edition = "2021"
+description = "The macOS capture backend of Glimpse: a rectangle becomes an avfoundation invocation."
+license = "Apache-2.0"
+repository = "https://github.com/viniciusdc/glimpse"
+
+# No AppKit yet. Turning a rectangle into ffmpeg arguments is string building, so
+# this crate compiles and its tests run on every platform — which is the point,
+# because it means Linux CI checks the macOS argument construction. `objc2` and
+# friends arrive with the window model (ADR 0011), not before.
+[dependencies]
+anyhow = { workspace = true }
+glimpse-core = { path = "../glimpse-core" }
