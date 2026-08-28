@@ -136,13 +136,16 @@ Two things are known to be needed alongside it and are not written:
 - **`die_with_parent` is a no-op off Linux**, so `SIGKILL` orphans a recording
   ffmpeg on macOS. Harmless while macOS could not record; reachable now that it
   can. `kqueue`'s `NOTE_EXIT` is the analogue of `PR_SET_PDEATHSIG`.
-- **Packaging is undecided.** GTK is dynamically linked, and on macOS it comes
-  from Homebrew at a prefix that differs by architecture; Screen Recording
-  permission attaches to a bundle identifier a bare binary does not have. That
-  decision shapes what the frontend is built into, so it wants making before the
-  frontend, not after. Release artifacts and `install.sh` are `linux-x86_64` only
-  today, and `install.sh` *constructs* the name the release workflow *writes* with
-  nothing verifying the two agree.
+- **Packaging is decided and unbuilt.** macOS ships an `.app` bundle
+  ([ADR 0013](adr/0013-macos-ships-an-app-bundle.md)) — Screen Recording
+  permission attaches to a bundle identifier that a bare binary cannot hold, and
+  the GTK dylibs need somewhere to live. The dylib handling in that record is
+  what the platform normally does rather than something measured; `otool -L` on a
+  Mac settles it and has not been run. Release artifacts and `install.sh` are
+  `linux-x86_64` only today, and `install.sh` *constructs* the name the release
+  workflow *writes* with nothing verifying the two agree — a coupling that
+  multiplies once macOS is added, and wants a check rather than a second
+  hardcoded string.
 
 For everything else, the product does what it set out to do: frame a region,
 record it to GIF or MP4, snapshot it, and refuse to hand over a file that is

@@ -239,6 +239,7 @@ docs/
   - [0010](docs/adr/0010-capture-providers-and-a-platform-free-core.md) — Capture providers, and a platform-free core
   - [0011](docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md) — Why the macOS frame is more than one window
   - [0012](docs/adr/0012-a-setting-a-backend-cannot-honour.md) — A setting a backend cannot honour is not offered
+  - [0013](docs/adr/0013-macos-ships-an-app-bundle.md) — macOS ships an `.app` bundle
 <!-- END GENERATED adr-index -->
 
 ## Licence
