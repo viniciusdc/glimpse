@@ -6,10 +6,24 @@ description = "The macOS capture backend of Glimpse: a rectangle becomes an avfo
 license = "Apache-2.0"
 repository = "https://github.com/viniciusdc/glimpse"
 
-# No AppKit yet. Turning a rectangle into ffmpeg arguments is string building, so
-# this crate compiles and its tests run on every platform — which is the point,
-# because it means Linux CI checks the macOS argument construction. `objc2` and
-# friends arrive with the window model (ADR 0011), not before.
+# Turning a rectangle into ffmpeg arguments is string building, so `grab` compiles
+# and its tests run on every platform. That is deliberate: it means Linux CI
+# checks the macOS argument construction, and it is why the toolkit dependencies
+# below are in a target table rather than here. Everything that needs AppKit is
+# behind `cfg(target_os = "macos")` in the source to match.
 [dependencies]
 anyhow = { workspace = true }
 glimpse-core = { path = "../glimpse-core" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gtk4 = { workspace = true }
+gdk4-macos = { version = "0.11", features = ["v4_8"] }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication",
+    "NSWindow",
+    "NSResponder",
+    "NSScreen",
+    "NSView",
+] }
+objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
