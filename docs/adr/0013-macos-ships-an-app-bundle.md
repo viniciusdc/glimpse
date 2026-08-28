@@ -1,7 +1,7 @@
 # 0013 — macOS ships an `.app` bundle
 
-- **Status:** ACCEPTED for the shape, with the dylib handling **unverified** — see
-  "Before implementing".
+- **Status:** ACCEPTED. The dylib handling was unverified when this was written
+  and has since been measured — see "The dylib handling, measured".
 - **Date:** 2026-08-28
 - **Relates to:** [ADR 0011](0011-why-the-macos-frame-is-more-than-one-window.md)
 
@@ -84,22 +84,52 @@ one `.desktop`. A bundle is a directory tree that has to be assembled, which is
 more than `install -m 755` and is the kind of thing that rots silently when only
 one platform is exercised.
 
-## Before implementing
+## The dylib handling, measured
 
-**The dylib handling in the Decision is unverified.** It is what the platform
-normally does, not something measured here, and this record should not be read as
-evidence. Two commands settle it on a Mac, and neither has been run:
+The two commands above have now been run, against a Rust binary linked to
+Homebrew GTK4 on Apple Silicon. The release binary could not be the subject:
+`glimpse` on macOS links no GTK at all, because there is no frontend yet. A spike
+binary that does link it stands in.
 
-```sh
-otool -L target/release/glimpse      # which dylibs, at which absolute prefixes
-otool -l target/release/glimpse | grep -A2 LC_RPATH
+**The absolute paths are real and there is no rpath.**
+
+```
+/opt/homebrew/opt/gtk4/lib/libgtk-4.1.dylib
+/opt/homebrew/opt/pango/lib/libpangocairo-1.0.0.dylib
+/opt/homebrew/opt/glib/lib/libglib-2.0.0.dylib
+...
+otool -l | grep LC_RPATH  ->  nothing
 ```
 
-If the binary bakes in absolute `/opt/homebrew` paths, every one has to be
-rewritten with `install_name_tool`, and the transitive closure of GTK's own
-dependencies has to come too — GTK pulls in glib, pango, cairo, harfbuzz and
-more, each with its own install names. That is the part most likely to be
-larger than it looks.
+So every install name has to be rewritten with `install_name_tool`. There is no
+rpath to redirect and no shortcut.
+
+**The closure is larger than the direct list, as suspected:**
+
+| | |
+|---|---|
+| direct Homebrew dylibs | 12 |
+| transitive closure | **39 dylibs, 25.6 MB** |
+| distinct packages | 29 |
+
+Beyond the obvious `glib`, `pango`, `cairo` and `harfbuzz`, it reaches
+`freetype`, `fontconfig`, `pixman`, `libpng`, `jpeg-turbo`, `libtiff`, `pcre2`,
+`zstd`, `xz`, `lzo`, `fribidi`, `libthai`, `libdatrie` and `graphite2`.
+
+**Eight of the thirty-nine are X11 client libraries**, on a Quartz build:
+`libX11`, `libxcb` and two of its extensions, `libXau`, `libXdmcp`, `libXext`,
+`libXrender`. Traced rather than assumed — Homebrew's **cairo** carries all six
+X11 links, `libgtk-4.dylib` itself carries none, and `pkg-config --exists
+gtk4-x11` is false, so the X11 backend is not even built. They are unreachable
+code that would ship anyway.
+
+At 1.6 MB they are 6% of the bundle and not worth engineering around. They are
+recorded because finding X11 libraries inside a macOS app bundle looks like a
+misconfiguration, and the next person should be able to confirm it is not one
+without re-deriving the trace.
+
+**What is still unverified** is that rewriting all 39 install names actually
+produces a working bundle. That needs a bundle to exist.
 
 ## What would falsify this
 
