@@ -132,9 +132,33 @@ it has somewhere to live again as soon as it is a window of its own.
 
 ## Consequences
 
-`addChildWindow` solves *move*. It says nothing about *resize*, and resizing the
-frame means resizing four strips and repositioning three of them. That is
-unproven and is the next thing to measure.
+`addChildWindow` solves *move* and not *resize*, now measured. A parent can
+change size with no child noticing, so the strips have to be repositioned and
+resized by hand on every frame resize.
+
+**And there is a trap in how that is written.** Propagation depends on which call
+is made, not on the state of the relationship:
+
+| call on the parent | children follow? |
+|---|---|
+| `setFrameOrigin:` | yes, by exactly the delta |
+| `setFrame:display:` — size only | n/a, nothing to follow |
+| `setFrame:display:` — size **and** origin | **no**, not even the origin component |
+
+The obvious way to write a resize is `setFrame:`, because size and origin change
+together. Do that and the strips silently stop tracking — which is the shear this
+composition was accused of, arriving through a door nobody was watching.
+
+That reading was confirmed rather than assumed. Children failing to follow a
+`setFrame:` has two very different explanations — the call does not propagate, or
+the call severed the parent/child link — and they need different fixes. A
+`setFrameOrigin:` issued immediately afterwards on the same windows moved all
+four by exactly its delta, so the relationship was intact the whole time and the
+difference is purely the API.
+
+**So: never let a `setFrame:` on the parent carry an origin change.** Decompose
+it — `setFrameOrigin:` for the move, so AppKit does the lockstep, then size-only
+frames for each strip.
 
 `performWindowDragWithEvent:` (macOS 10.11+) hands a drag to the window server and
 returns immediately, which is the native equivalent of the `begin_resize` handoff
@@ -159,3 +183,12 @@ anything. Both renderers this build ships were measured and neither helps, but a
 future GTK4 release adding or changing one could move the answer in either
 direction, silently and without any change on our side. The measurement is two
 commands and worth repeating before building on it.
+
+## Where measurement stops being cheap
+
+Everything above is geometry read back from the window server, which is exact and
+costs nothing. Whether a hand-written four-strip resize **shears visibly** during
+a drag is not answerable that way: it needs a real pointer dragging a real frame,
+and a frame that does not exist yet. That question is deferred to the frontend
+rather than guessed at here, and it is the one place in this record where the
+next answer will cost more than a spike.
