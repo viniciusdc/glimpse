@@ -56,7 +56,7 @@ which preserves alpha, gives `rgba=00000000` in the hole and `rgba=4080f5ff` on
 the border. GTK renders the hole at **alpha 0**. The window server has exactly the
 information it needs and does not act on it.
 
-Four candidate causes were eliminated:
+Six candidate causes were eliminated:
 
 | tried | result |
 |---|---|
@@ -64,9 +64,27 @@ Four candidate causes were eliminated:
 | `gdk_surface_set_opaque_region(empty)` | no change |
 | `setBackgroundColor(clearColor)` | no change; GTK's is already `gray … 0 1e-05` |
 | layer-backing (`wantsLayer`) | not the cause — the raw AppKit window still passes with it on |
+| `GSK_RENDERER=opengl` (`GskGLRenderer`) | no change |
+| `GSK_RENDERER=cairo` (`GskCairoRenderer`) | no change |
 
-The mechanism was not identified. The remaining suspect is GTK's renderer layer,
-which is not a property that can be flipped.
+The renderer rows exist because the layer-backing row does not eliminate what it
+appears to. `setWantsLayer(true)` on a raw `NSWindow` installs a plain `CALayer`;
+GSK's GL renderer installs a GPU-backed layer, which is a different object and
+could plausibly present "opaque" as its shape regardless of what was drawn into
+it. Cairo is the path that draws into an image surface instead, and is therefore
+the one most likely to present the alpha AppKit hit-tests against.
+
+It does not. Renderer selection was confirmed to take effect rather than assumed
+— `GSK_DEBUG=renderer` reports `Using renderer 'GskCairoRenderer' for surface
+'GdkMacosToplevelSurface'` — because a silent fallback to GL would have produced
+a passing-looking elimination that eliminated nothing.
+
+The mechanism was not identified.
+
+For the record, this build offers `cairo` and `opengl`; `broadway` and `vulkan`
+are disabled at build time, and the list moves between releases, so
+`GSK_RENDERER=help` is the authoritative version of this question on any given
+machine.
 
 ## Decision
 
@@ -131,9 +149,13 @@ lives behind the crate boundary ADR 0010 established.
 
 Finding the GTK knob. If a GTK4 surface on macOS can be made to inherit the
 window server's alpha hit test, the whole composition collapses back to one
-window and this record should be superseded rather than amended. Four candidates
+window and this record should be superseded rather than amended. Six candidates
 have been eliminated; the search was not exhaustive.
 
-A future GTK4 release changing its macOS renderer could also change the answer in
-either direction, silently. The measurement is cheap to repeat and worth
-repeating before building on it.
+The renderer deserves specific mention, because it is the candidate most likely
+to be tried next by someone who has not read this far. It is not a fixed property
+of the build — `GSK_RENDERER` changes it at run time, today, without recompiling
+anything. Both renderers this build ships were measured and neither helps, but a
+future GTK4 release adding or changing one could move the answer in either
+direction, silently and without any change on our side. The measurement is two
+commands and worth repeating before building on it.
