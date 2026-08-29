@@ -77,7 +77,7 @@ fn main() -> anyhow::Result<()> {
         let layout = frame.layout();
 
         println!("=== requested (AppKit points, bottom-left origin) ===");
-        for (name, r) in names().iter().zip(layout.windows()) {
+        for (name, r) in names().iter().zip([layout.chrome, layout.frame].iter()) {
             println!("  {name:<8} {}", fmt(*r));
         }
         println!("  {:<8} {}   <- not a window", "hole", fmt(layout.hole));
@@ -85,7 +85,11 @@ fn main() -> anyhow::Result<()> {
         let actual = frame.actual_frames()?;
         println!("\n=== actual, read back from the window server ===");
         let mut all_placed = true;
-        for ((name, want), got) in names().iter().zip(layout.windows()).zip(actual.iter()) {
+        for ((name, want), got) in names()
+            .iter()
+            .zip([layout.chrome, layout.frame].iter())
+            .zip(actual.iter())
+        {
             let ok = close(*want, *got);
             all_placed &= ok;
             println!(
@@ -96,9 +100,12 @@ fn main() -> anyhow::Result<()> {
         }
 
         println!("\n=== the invariant ===");
-        let covered = layout.anything_covers_the_hole();
+        // The frame window DOES cover the hole now, deliberately. What must hold
+        // is that the two descriptions of the recorded region agree, and that
+        // the opaque chrome stays off it.
+        let covered = layout.hole_from_frame(glimpse_macos::frame::BORDER) != layout.hole;
         println!(
-            "  nothing covers the hole : {}",
+            "  hole matches the inset frame : {}",
             if covered { "FAIL" } else { "PASS" }
         );
         println!(
@@ -118,8 +125,8 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     }
 
-    fn names() -> [&'static str; 5] {
-        ["header", "top", "bottom", "left", "right"]
+    fn names() -> [&'static str; 2] {
+        ["chrome", "frame"]
     }
 
     fn fmt(r: glimpse_macos::geometry::AppKitRect) -> String {

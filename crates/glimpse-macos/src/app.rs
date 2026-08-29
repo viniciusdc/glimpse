@@ -86,11 +86,18 @@ fn realize_and_report(frame: &Frame) -> anyhow::Result<()> {
         rect.w, rect.h, rect.x, rect.y
     );
 
-    // The invariant the whole composition exists for. Checked at run time as
-    // well as in `layout`'s tests, because a layout that is correct in the
-    // abstract can still be placed wrongly.
-    if frame.layout().anything_covers_the_hole() {
-        anyhow::bail!("a window covers the hole, so the frame is not click-through");
+    // The frame window covers the hole deliberately now (ADR 0015) and is
+    // click-through because it takes no mouse events at all. What must still
+    // hold is that the two descriptions of the recorded region agree: the hole
+    // the caller asked for, and the frame window inset by its border. If those
+    // drift, the user frames one rectangle and records another.
+    let l = frame.layout();
+    if l.hole_from_frame(crate::frame::BORDER) != l.hole {
+        anyhow::bail!(
+            "the recorded region and the drawn frame disagree: hole {:?} vs inset frame {:?}",
+            l.hole,
+            l.hole_from_frame(crate::frame::BORDER)
+        );
     }
 
     println!("glimpse: no controls yet — this is the frame only. Ctrl-C to quit.");

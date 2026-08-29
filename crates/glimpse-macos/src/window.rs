@@ -142,6 +142,23 @@ pub fn set_floating(window: &NSWindow) {
     window.setLevel(FLOATING);
 }
 
+/// Make a window take no clicks anywhere.
+///
+/// `ignoresMouseEvents` is whole-window, which is why issue #1 and
+/// [ADR 0011](../../docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md)
+/// both dismissed it: it cannot describe a hole. That was the wrong conclusion.
+/// A window meant to be purely decorative wants exactly whole-window
+/// click-through, and setting it is what lets the frame cover the hole at all
+/// (ADR 0015).
+///
+/// **It does not take effect within the turn it is set.** The window server
+/// processes it asynchronously, so anything reading window state back must pump
+/// the run loop first. Measuring without that pump once produced a confident
+/// "the flag does nothing".
+pub fn ignore_mouse_events(window: &NSWindow) {
+    window.setIgnoresMouseEvents(true);
+}
+
 /// The AppKit frame of a window, as the flip expects it.
 pub fn appkit_frame(window: &NSWindow) -> AppKitRect {
     let f = window.frame();

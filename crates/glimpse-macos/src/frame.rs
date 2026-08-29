@@ -1,60 +1,66 @@
-//! The macOS framing window: five GTK windows around a hole that is not one.
+//! The macOS framing window: two windows, one of which takes no clicks.
 //!
-//! See [ADR 0011](../../docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md).
-//! GTK cannot make a covered region click-through on macOS, so nothing is placed
-//! over the hole and the click-through comes from there being no window there at
-//! all.
+//! Per [ADR 0015](../../docs/adr/0015-the-frame-is-two-windows.md). GTK does not
+//! inherit the window server's per-pixel alpha hit test on macOS, so a normal
+//! window covering the hole would swallow every click. A window with
+//! `ignoresMouseEvents` set takes no clicks *anywhere*, which makes it safe to
+//! put over the hole — and means all interaction has to come from the chrome.
 //!
 //! ## Why placement goes through AppKit
 //!
 //! GTK4 removed window positioning — there is no `move` on `GtkWindow`. So GTK
-//! creates and draws the windows, and every position comes from
+//! creates and draws the windows and every position comes from
 //! [`crate::window::place`] via the `NSWindow` underneath. That is the whole
 //! reason [`crate::window::window_nswindow`] is a choke point.
 //!
-//! ## Why positioning is deferred
+//! ## Why realizing is deferred
 //!
 //! A `GdkSurface` does not exist until the window is mapped, and there is no
-//! `NSWindow` before there is a surface. Positioning at construction time
-//! silently does nothing: a frame laid out on top of itself at the origin looks
-//! like a layout bug rather than a timing one. So [`Frame::realize`] returns an
-//! error when called too early rather than quietly achieving nothing.
+//! `NSWindow` before there is a surface. [`Frame::realize`] returns an error
+//! when called too early rather than quietly achieving nothing, because a frame
+//! sitting unplaced at the origin reads as a layout bug rather than a timing one.
+//!
+//! `ignoresMouseEvents` is asynchronous too: it does not take effect within the
+//! turn it is set. Anything reading window state back after setting it must pump
+//! the run loop first, which is how it was once measured as non-functional.
 
 use anyhow::{Context, Result};
 use glimpse_core::geometry::ScreenPixelRect;
 use gtk::prelude::*;
 use gtk4 as gtk;
-use objc2::rc::Retained;
-use objc2_app_kit::NSWindow;
 use objc2_foundation::MainThreadMarker;
 
 use crate::geometry::AppKitRect;
 use crate::layout::{lay_out, Layout};
-use crate::window::{attach_strips, capture_rect, place, set_floating, window_nswindow};
+use crate::window::{
+    attach_strips, capture_rect, ignore_mouse_events, place, set_floating, window_nswindow,
+};
 
 /// Frame thickness in points. Matches the X11 frontend's border.
 pub const BORDER: f64 = 3.0;
-/// Header height in points, from the design document via ADR 0006.
-pub const HEADER_HEIGHT: f64 = 44.0;
+/// Chrome height in points, from the design document via ADR 0006.
+pub const CHROME_HEIGHT: f64 = 44.0;
 
+/// The frame window paints a border and nothing else: the middle must stay
+/// genuinely transparent or it lands in the recording. That is a failure mode
+/// the five-window composition could not have, because nothing was over the hole.
 const CSS: &str = "
-    window.glimpse-strip  { background: #4080f5; }
-    window.glimpse-header { background: #282c33; }
+    window.glimpse-frame  { background: transparent; border: 3px solid #4080f5; }
+    window.glimpse-chrome { background: #282c33; }
 ";
 
-/// The five windows, and the hole they surround.
+/// The two windows, and the hole between them.
 pub struct Frame {
-    header: gtk::Window,
-    strips: [gtk::Window; 4],
+    chrome: gtk::Window,
+    frame: gtk::Window,
     layout: Layout,
 }
 
 impl Frame {
     /// Build the frame around `hole`, in AppKit coordinates.
     ///
-    /// The windows are created and presented here; they are **not** positioned
-    /// until [`Frame::realize`] runs, because there is no `NSWindow` to position
-    /// until GTK has mapped them.
+    /// Presented but not positioned: there is no `NSWindow` until GTK has
+    /// mapped them. Call [`Frame::realize`] after a turn of the main loop.
     pub fn new(app: &gtk::Application, hole: AppKitRect) -> Self {
         let provider = gtk::CssProvider::new();
         provider.load_from_data(CSS);
@@ -66,50 +72,37 @@ impl Frame {
             );
         }
 
-        let layout = lay_out(hole, BORDER, HEADER_HEIGHT);
-        let header = bare_window(app, "glimpse-header", layout.header);
-        let strips = [
-            bare_window(app, "glimpse-strip", layout.strips[0]),
-            bare_window(app, "glimpse-strip", layout.strips[1]),
-            bare_window(app, "glimpse-strip", layout.strips[2]),
-            bare_window(app, "glimpse-strip", layout.strips[3]),
-        ];
-
-        for w in std::iter::once(&header).chain(strips.iter()) {
-            w.present();
-        }
+        let layout = lay_out(hole, BORDER, CHROME_HEIGHT);
+        let chrome = bare_window(app, "glimpse-chrome", layout.chrome);
+        let frame = bare_window(app, "glimpse-frame", layout.frame);
+        chrome.present();
+        frame.present();
 
         Self {
-            header,
-            strips,
+            chrome,
+            frame,
             layout,
         }
     }
 
-    /// Position the windows and bind the strips to the header.
-    ///
-    /// Must run after GTK has mapped them. Returns an error rather than doing
-    /// nothing if called too early, because a frame that quietly failed to lay
-    /// itself out is indistinguishable from one laid out wrongly.
+    /// Position both windows, make the frame click-through, and bind it to the
+    /// chrome so a move carries.
     pub fn realize(&self) -> Result<()> {
-        let header = window_nswindow(&self.header)
-            .context("the header has no NSWindow yet — realize() ran before GTK mapped it")?;
-        place(&header, self.layout.header);
-        set_floating(&header);
+        let chrome = window_nswindow(&self.chrome)
+            .context("the chrome has no NSWindow yet — realize() ran before GTK mapped it")?;
+        place(&chrome, self.layout.chrome);
+        set_floating(&chrome);
 
-        let mut strip_windows: Vec<Retained<NSWindow>> = Vec::with_capacity(4);
-        for (i, w) in self.strips.iter().enumerate() {
-            let ns =
-                window_nswindow(w).with_context(|| format!("strip {i} has no NSWindow yet"))?;
-            place(&ns, self.layout.strips[i]);
-            set_floating(&ns);
-            strip_windows.push(ns);
-        }
+        let frame = window_nswindow(&self.frame).context("the frame has no NSWindow yet")?;
+        place(&frame, self.layout.frame);
+        set_floating(&frame);
+        // The whole design. Without this the frame swallows every click in the
+        // hole, and the user cannot touch the application they are recording.
+        ignore_mouse_events(&frame);
 
         // After placement, not before: `addChildWindow` records the offset that
-        // exists at the moment it is called, so attaching first would lock in
-        // whatever positions GTK happened to choose.
-        attach_strips(&header, &strip_windows);
+        // exists at the moment it is called.
+        attach_strips(&chrome, std::slice::from_ref(&frame));
         Ok(())
     }
 
@@ -122,18 +115,17 @@ impl Frame {
         &self.layout
     }
 
-    pub fn header(&self) -> &gtk::Window {
-        &self.header
+    pub fn chrome(&self) -> &gtk::Window {
+        &self.chrome
     }
 
-    /// Read every window's position back from the window server.
+    /// Read both windows' positions back from the window server.
     ///
-    /// For checking that the frame is where it was asked to be, rather than
-    /// where it was told to go. The two differ whenever something else has an
-    /// opinion — a screen edge, a minimum size, a call that arrived too early.
+    /// For checking the frame is where it was asked to be rather than where it
+    /// was told to go — the two differ whenever something else has an opinion.
     pub fn actual_frames(&self) -> Result<Vec<AppKitRect>> {
-        let mut out = Vec::with_capacity(5);
-        for w in std::iter::once(&self.header).chain(self.strips.iter()) {
+        let mut out = Vec::with_capacity(2);
+        for w in [&self.chrome, &self.frame] {
             let ns = window_nswindow(w)?;
             out.push(crate::window::appkit_frame(&ns));
         }
