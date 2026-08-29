@@ -140,11 +140,22 @@ backend manages that property for its own input-region handling and could reset
 it. That would be a frame which is click-through until the user resizes it and
 then quietly is not — a bug that only appears in use.
 
-**Resize was measured and it survives:** the flag still reads `true` afterwards
-and the hit test still passes through. Restacking, theme changes and a
-fullscreen transition were not tested, so the concern is narrowed rather than
-closed. Anything that makes GDK recompute its input region is worth re-checking,
-and the check is two commands.
+**Measured, and it survives every disturbance tried:**
+
+```
+after a resize             flag=true   hole clear
+after orderFront (restack) flag=true   hole clear
+after setLevel             flag=true   hole clear
+after orderBack            flag=true   hole clear
+```
+
+Each line is an actual hit test, not just the property read back. Reading it back
+is not sufficient on its own: the window could report our value while the window
+server holds another, which is exactly the gap between "we set it" and "it took
+effect" that produced the first false negative here.
+
+Theme changes and a fullscreen transition were not tested. The concern is
+narrowed rather than closed, and re-checking is two commands.
 
 A macOS header that genuinely diverges from the shared chrome would also
 falsify the arrangement, but that is [ADR 0014](0014-the-chrome-is-shared-the-window-model-is-not.md)'s
