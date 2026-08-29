@@ -107,7 +107,7 @@ make docs        # build the API documentation with rustdoc
 `scripts/sync-docs.sh` **generates** the ADR index in the README from each ADR's
 own heading, and **verifies** what cannot be generated without losing prose:
 
-- every path in the README layout block exists;
+- every path in the [`docs/layout.md`](layout.md) tree exists, and none is listed twice;
 - every module under `src/` appears in that block;
 - every `` `make <target>` `` mentioned in any `.md` is a real target;
 - every relative link in the docs resolves to a real file.

@@ -10,10 +10,10 @@
 # this project's first review: three published claims did not match the code.
 #
 # What is GENERATED (do not hand-edit between the markers):
-#   * the ADR index in README.md — titles come from each ADR's own heading
+#   * the ADR index in docs/adr/README.md — titles come from each ADR's heading
 #
 # What is VERIFIED (hand-written, mechanically checked):
-#   * every path in the README layout block exists
+#   * every path in the docs/layout.md tree exists
 #   * every Rust source under src/ and crates/*/ appears in that block
 #   * every `make <target>` mentioned in any .md is a real target
 #   * every relative link in the .md files resolves to a real file
@@ -38,12 +38,17 @@ fail() { printf 'DRIFT: %s\n' "$1"; drift=1; }
 generate_adr_index() {
   local f n title
   for f in docs/adr/*.md; do
+    # The index now lives in docs/adr/README.md, which this glob matches. Without
+    # this it indexes itself, as an entry titled "(untitled)" because it has no
+    # `# NNNN — Title` heading.
+    [[ "$(basename "$f")" == "README.md" ]] && continue
     n=$(basename "$f" .md)
     n=${n%%-*}
     # The title line is `# 0000 — Something`; keep the part after the number.
     title=$(sed -n 's/^# [0-9]\{4\} — //p' "$f")
     [[ -z "$title" ]] && title="(untitled — ADR is missing its '# NNNN — Title' heading)"
-    printf '  - [%s](%s) — %s\n' "$n" "$f" "$title"
+    # Paths are relative to docs/adr/README.md, which is where the block lives.
+    printf '  - [%s](%s) — %s\n' "$n" "$(basename "$f")" "$title"
   done
 }
 
@@ -80,14 +85,14 @@ p.write_text(s2)
 }
 
 # ----------------------------------------------------------------- verifiers --
-# Every path the README layout block names, with tree prefixes resolved.
+# Every path the docs/layout.md tree names, with tree prefixes resolved.
 #
 # The block is a tree: an unindented entry ending in / opens a directory, and
 # indented entries below it are relative to that directory. Both the
 # does-it-exist check and the is-it-listed check read this, so they cannot
 # disagree about what the block says.
 layout_paths() {
-  awk '/<!-- BEGIN GENERATED layout/{inb=1; next} /<!-- END GENERATED layout/{inb=0} inb' README.md \
+  awk '/<!-- BEGIN GENERATED layout/{inb=1; next} /<!-- END GENERATED layout/{inb=0} inb' docs/layout.md \
     | awk '
         /^```/ { next }
         /^[^[:space:]]/ { if ($1 ~ /\/$/) { prefix = $1; next } else { prefix = "" ; print $1; next } }
@@ -100,7 +105,7 @@ verify_layout_paths() {
   while read -r p; do
     [[ -z "$p" || "$p" == '```' ]] && continue
     if [[ ! -e "$p" && ! -e "${p%/}" ]]; then
-      fail "README layout names '$p', which does not exist"
+      fail "docs/layout.md names '$p', which does not exist"
       missing=1
     fi
   done < <(layout_paths)
@@ -120,14 +125,14 @@ verify_no_duplicate_paths() {
   dupes=$(layout_paths | grep -v '^$' | sort | uniq -d)
   if [[ -n "$dupes" ]]; then
     while read -r p; do
-      [[ -n "$p" ]] && fail "README layout lists '$p' more than once"
+      [[ -n "$p" ]] && fail "docs/layout.md lists '$p' more than once"
     done <<< "$dupes"
     return
   fi
   note "layout paths: no duplicates"
 }
 
-# Every Rust source in the workspace must appear in the layout block.
+# Every Rust source in the workspace must appear in the docs/layout.md tree.
 #
 # Matched on the FULL resolved path, not on a basename: with one crate per
 # platform there are now several `src/geometry.rs`, and a basename match would
@@ -138,7 +143,7 @@ verify_sources_are_documented() {
   while read -r f; do
     [[ -z "$f" ]] && continue
     if ! printf '%s\n' "$listed" | grep -qxF "$f"; then
-      fail "$f is not mentioned in the README layout block"
+      fail "$f is not mentioned in the docs/layout.md tree"
       undocumented=1
     fi
   done < <(find src crates -name '*.rs' -not -path '*/target/*' 2>/dev/null | sort)
@@ -200,6 +205,24 @@ verify_relative_links() {
   (( bad )) || note "relative links: all resolve"
 }
 
+
+# The version in the README badge matches Cargo.toml.
+#
+# The badge is hand-maintained, which is the whole objection to having one: it
+# goes stale silently, because nothing renders it against the source of truth.
+# Two lines of check turns it back into a fact.
+verify_version_badge() {
+  local want have
+  want=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+  have=$(grep -oE 'badge/status-v[0-9.]+' README.md | head -1 | sed 's|.*status-v||')
+  if [[ -z "$have" ]]; then
+    fail "README has no version badge matching 'badge/status-vX.Y.Z'"
+  elif [[ "$want" != "$have" ]]; then
+    fail "README version badge says v$have, Cargo.toml says $want"
+  else
+    note "version badge: v$have matches Cargo.toml"
+  fi
+}
 
 # Every `#fragment` resolves to a heading that exists.
 #
@@ -302,12 +325,13 @@ PYEOF
 
 # ---------------------------------------------------------------------- run --
 printf 'Docs sync%s\n' "$( ((CHECK)) && printf ' (check only)')"
-sync_block README.md adr-index "$(generate_adr_index)"
+sync_block docs/adr/README.md adr-index "$(generate_adr_index)"
 verify_layout_paths
 verify_no_duplicate_paths
 verify_sources_are_documented
 verify_make_targets
 verify_assets_are_tracked
+verify_version_badge
 verify_relative_links
 verify_anchors
 verify_markdown_hygiene
