@@ -42,7 +42,7 @@ pub fn run() -> ExitCode {
         .build();
 
     // Held for the lifetime of the application rather than dropped at the end of
-    // `activate`. Dropping the Frame drops five GTK windows, and the frame would
+    // `activate`. Dropping the Frame drops both GTK windows, and the frame would
     // vanish the instant it appeared.
     let held: Rc<RefCell<Option<Frame>>> = Rc::new(RefCell::new(None));
     let failed = Rc::new(RefCell::new(false));

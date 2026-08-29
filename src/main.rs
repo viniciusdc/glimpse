@@ -34,7 +34,7 @@ fn handled_cli() -> bool {
                  -V, --version   Print the version\n  \
                  -h, --help      Print this help\n\n\
                  Settings live in ~/.config/glimpse/config.toml and in the header menu.\n\
-                 Requires {s} and ffmpeg.\n\
+                 Runs on {s}. Requires ffmpeg.\n\
                  {r}",
                 v = env!("CARGO_PKG_VERSION"),
                 s = SUPPORTED,
