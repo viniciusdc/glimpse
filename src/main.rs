@@ -12,7 +12,12 @@ use std::process::ExitCode;
 
 /// The platforms a frontend exists for, for the `--help` text and the refusal
 /// message. Kept as one list so the two cannot disagree.
-const SUPPORTED: &str = "Linux/X11 and macOS";
+///
+/// The macOS qualifier is not padding. A bare "Linux/X11 and macOS" reads as two
+/// equivalent platforms, and the README has to say the opposite three paragraphs
+/// later — macOS puts the frame up but has no controls, so it cannot record. The
+/// first thing a user runs should not be the thing that misleads them.
+const SUPPORTED: &str = "Linux/X11, and macOS (frame only, no controls yet)";
 
 /// Answer `--version` and `--help` before touching a toolkit.
 ///

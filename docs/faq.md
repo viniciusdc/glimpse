@@ -99,10 +99,26 @@ No, and none of these are planned. Glimpse records one silent region. See *About
 
 ## Are there macOS or Windows builds?
 
-No, and there will not be. Glimpse works by being a window that knows its own
-position on screen and declares its own capture rectangle; macOS and Windows both
-refuse that, and it links X11 libraries besides. A build for either would be a
-different application sharing a name, not a port — the same reason Wayland is out.
+**macOS is in progress. Windows is not.**
+
+This answer used to say "no, and there will not be", reasoning that Glimpse works
+by being a window that knows its own position and declares its own capture
+rectangle, and that macOS refuses that. The second half was measured and it is
+false: macOS hit-tests a non-opaque window per pixel against its alpha, so a
+window with a transparent middle genuinely is click-through, and LICEcap has
+shipped exactly that since 2011. The correction is recorded in
+[ADR 0011](adr/0011-why-the-macos-frame-is-more-than-one-window.md), and the
+window model it settled on in
+[ADR 0015](adr/0015-the-frame-is-two-windows.md).
+
+What exists today is a frame that places itself and reports the region it would
+capture, over a working avfoundation backend. It has no controls, so it cannot
+record from the UI, and there is no release artifact or `.app` bundle. The README
+covers how to run it.
+
+Windows is untouched. Nobody has measured anything there, so read its absence as
+unexamined rather than settled — which is precisely the mistake this answer made
+about macOS.
 
 Releases are Linux x86_64, and need an X11 session, GTK4 >= 4.10 and ffmpeg.
 
