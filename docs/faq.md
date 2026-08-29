@@ -135,3 +135,5 @@ testing has no compositor, so on it the transparency would not composite and the
 hole — the one thing worth showing — would come out black.
 
 Run `make demo` to regenerate the animation.
+
+<!-- probe: docs-only change, to observe which CI jobs run -->
