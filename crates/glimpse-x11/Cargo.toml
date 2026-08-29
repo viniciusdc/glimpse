@@ -9,6 +9,7 @@ repository = "https://github.com/viniciusdc/glimpse"
 [dependencies]
 anyhow = { workspace = true }
 glimpse-core = { path = "../glimpse-core" }
+glimpse-ui = { path = "../glimpse-ui" }
 gtk4 = { workspace = true }
 gdk4-x11 = { workspace = true }
 x11rb = { workspace = true }

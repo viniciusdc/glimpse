@@ -1,0 +1,21 @@
+[package]
+name = "glimpse-ui"
+version = "0.1.0"
+edition = "2021"
+description = "Glimpse's chrome: the palette, the stylesheet, and the formatters the header shows."
+license = "Apache-2.0"
+repository = "https://github.com/viniciusdc/glimpse"
+
+# NO DEPENDENCIES, and that is worth keeping for as long as it lasts.
+#
+# ADR 0014 predicted this crate would need `gtk4` unconditionally, and that Linux
+# CI would therefore stop covering everything the macOS build compiles. That is
+# true of the widget tree, which has not moved yet. It is not true of what is
+# here: a palette, a stylesheet built by string substitution, and two
+# formatters. None of it has ever needed a toolkit.
+#
+# So this half is testable on every platform, like `glimpse-core`. `gtk4` arrives
+# with the widgets, not before — and when it does, the presentation could stay
+# behind a feature or in its own module if the coverage turns out to be worth
+# more than the tidiness.
+[dependencies]
