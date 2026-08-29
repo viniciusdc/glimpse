@@ -356,6 +356,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "glimpse-core",
+ "glimpse-macos",
  "glimpse-x11",
 ]
 

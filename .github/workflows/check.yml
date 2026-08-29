@@ -141,18 +141,64 @@ jobs:
           fi
           echo "media tests ran"
 
-      # The binary must resolve and run on a platform with no frontend, refusing
-      # cleanly rather than failing to link. This is the "installable on macOS"
-      # claim, checked rather than asserted.
-      - name: The binary builds and refuses cleanly
+      # This step used to assert that the binary REFUSES on macOS, because macOS
+      # had no frontend. It has one as of this change, so the assertion is not
+      # merely stale: it hangs. `glimpse` with no arguments now enters the GTK
+      # main loop and there is no quit control yet, so the step ran until the
+      # job's 20-minute timeout killed it, which reads in the UI as a slow build
+      # rather than as a check whose premise expired. The tell was at the end of
+      # the cancelled run: `Terminate orphan process: pid (10743) (glimpse)`.
+      #
+      # Staying up is now the pass, so the check has to be bounded by us rather
+      # than by the job timeout. Three outcomes, each distinguished, because a
+      # launch check that lumps "died instantly" together with "came up but never
+      # drew" cannot tell a broken frontend from a runner with no window server,
+      # and the whole point of running this on a real macOS machine is to tell
+      # those apart.
+      - name: The binary builds, launches and places the frame
         run: |
           cargo build --locked --release
           ./target/release/glimpse --version
-          if ./target/release/glimpse; then
-            echo '::error::glimpse exited 0 on a platform with no frontend'
+
+          # --help is answered before a toolkit is touched and it names the
+          # platforms a frontend exists for. That list is a single constant in
+          # main.rs shared with the refusal message; if macOS drops out of it the
+          # binary is misdescribing itself to whoever runs it.
+          ./target/release/glimpse --help | tee help.log
+          if ! grep -q 'macOS' help.log; then
+            echo '::error::--help no longer lists macOS as supported'
             exit 1
           fi
-          echo "refused with a non-zero status, as it should"
+
+          ./target/release/glimpse > launch.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 45); do
+            grep -q 'frame up' launch.log && break
+            kill -0 $pid 2>/dev/null || break
+            sleep 1
+          done
+
+          if grep -q 'frame up. capture rect' launch.log; then
+            # It placed both windows AND agreed with itself about the recorded
+            # region: app.rs bails if the hole and the frame inset by its border
+            # disagree, so reaching this line is that invariant holding on a
+            # machine nobody configured.
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            echo "the frontend came up and placed the frame:"
+            cat launch.log
+          elif kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            echo '::error::glimpse stayed up but never placed the frame'
+            cat launch.log
+            exit 1
+          else
+            rc=0; wait "$pid" || rc=$?
+            echo "::error::glimpse exited $rc before placing the frame"
+            cat launch.log
+            exit 1
+          fi
 
   # The integration half. Everything else in this workflow runs `cargo`, which
   # never launches the application: `smoke.sh` and `selftest.sh` existed for a
