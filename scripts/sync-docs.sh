@@ -106,6 +106,25 @@ verify_layout_paths() {
   (( missing )) || note "layout paths: all exist"
 }
 
+# No path may be listed twice.
+#
+# Neither check above notices a duplicate: a repeated entry exists, so the
+# does-it-exist check passes, and it is listed, so the coverage check passes.
+# `scripts/smoke.sh` and `scripts/selftest.sh` were each in the block twice with
+# DIFFERENT descriptions, which is the damaging form — two descriptions of one
+# file, and a reader has no way to tell which is current.
+verify_no_duplicate_paths() {
+  local dupes
+  dupes=$(layout_paths | grep -v '^$' | sort | uniq -d)
+  if [[ -n "$dupes" ]]; then
+    while read -r p; do
+      [[ -n "$p" ]] && fail "README layout lists '$p' more than once"
+    done <<< "$dupes"
+    return
+  fi
+  note "layout paths: no duplicates"
+}
+
 # Every Rust source in the workspace must appear in the layout block.
 #
 # Matched on the FULL resolved path, not on a basename: with one crate per
@@ -183,6 +202,7 @@ verify_relative_links() {
 printf 'Docs sync%s\n' "$( ((CHECK)) && printf ' (check only)')"
 sync_block README.md adr-index "$(generate_adr_index)"
 verify_layout_paths
+verify_no_duplicate_paths
 verify_sources_are_documented
 verify_make_targets
 verify_assets_are_tracked
