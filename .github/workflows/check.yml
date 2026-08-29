@@ -25,18 +25,105 @@ jobs:
   # Needs no toolchain and no system libraries, so it answers in seconds and
   # catches the largest category of finding this project has had: docs drifting
   # from the code.
+  # Which of the jobs below are worth running for this change.
+  #
+  # NOT a `paths:` filter on the workflow. That was the obvious implementation and
+  # it is a trap here: a workflow skipped by a path filter never reports its
+  # checks at all, and `main` requires them, so a docs-only pull request would sit
+  # forever on "Expected — waiting for status to be reported" with no way to merge
+  # it short of editing the protection rule. A job skipped by `if:` still reports.
+  #
+  # This job is itself a required check. If it were not, a failure here would skip
+  # every job downstream, each skip would report as success, and the pull request
+  # would become mergeable having compiled nothing. The classify step also
+  # defaults to code=true on any error, so the two failure modes are covered from
+  # both ends.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+      md: ${{ steps.classify.outputs.md }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - id: classify
+        run: |
+          # Anything unexpected means run everything. A change that silently
+          # skipped the test suite because this script tripped over a filename
+          # would be the worst outcome available here.
+          set +e
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "md=" >> "$GITHUB_OUTPUT"
+            echo "not a pull request — running everything"
+            exit 0
+          fi
+
+          git fetch --no-tags --quiet origin "${{ github.base_ref }}" || {
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "md=" >> "$GITHUB_OUTPUT"
+            echo "could not fetch the base — running everything"; exit 0; }
+
+          changed=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          if [ -z "$changed" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "md=" >> "$GITHUB_OUTPUT"
+            echo "empty diff — running everything"; exit 0
+          fi
+
+          echo "changed files:"; echo "$changed" | sed 's/^/  /'
+
+          # Documentation is *.md plus everything under docs/. Note what is NOT
+          # here: .github/, scripts/ and Makefile are code, because a change to a
+          # gate has to be run to know it still gates.
+          code=false
+          while IFS= read -r f; do
+            case "$f" in
+              docs/*|*.md|LICENSE|NOTICE) ;;
+              *) code=true ;;
+            esac
+          done <<< "$changed"
+
+          md=$(echo "$changed" | grep -E '\.md$' | tr '\n' ' ')
+
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "md=$md" >> "$GITHUB_OUTPUT"
+          echo
+          if [ "$code" = true ]; then
+            echo "non-documentation files changed — running the full suite"
+          else
+            echo "documentation only — skipping build, tests and journeys"
+          fi
+          echo "markdown touched: ${md:-none}"
+
   docs:
     name: Docs
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    needs: changes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: make docs-check
+
+      # Only the markdown this change touched. A pull request answers for the
+      # links it introduces or edits, not for the forty it left alone — and
+      # re-checking those every time is how a link check becomes something people
+      # skim past. Nothing to check is a pass, which is the common case.
+      #
+      # Only a 404 or 410 fails. A timeout, a 5xx or a 429 is somebody else having
+      # a bad afternoon and says nothing about whether the link is right.
+      - name: External links in the changed docs
+        run: ./scripts/check-links-external.sh ${{ needs.changes.outputs.md }}
 
   # Formatting needs rustfmt and nothing else — no GTK, no cache, no build.
   # Kept separate so it fails in ~15s instead of behind a five-minute compile.
   format:
     name: Format
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -57,6 +144,8 @@ jobs:
   # without telling anyone anything.
   core-macos:
     name: Core on macOS
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -214,6 +303,8 @@ jobs:
   # will notice when the macOS one arrives and these stop being the whole story.
   journeys:
     name: User journeys
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -285,6 +376,8 @@ jobs:
 
   test:
     name: Clippy and tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

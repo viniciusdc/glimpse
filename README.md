@@ -251,6 +251,7 @@ scripts/
   smoke.sh              Drives one user journey and turns it into an exit status
   selftest.sh           Geometry and input region, with a status the suite can read
   check-journeys.sh     Fails if a journey exists that nothing drives
+  check-links-external.sh  External links in the docs; only a 404 fails
   install.sh            Installs a release, refusing anything that fails its checksum
   make-demo.py          Draws the README animation, frame by frame
   sync-docs.sh          Regenerates the ADR index; fails the build on doc drift

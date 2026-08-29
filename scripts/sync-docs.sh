@@ -17,7 +17,9 @@
 #   * every Rust source under src/ and crates/*/ appears in that block
 #   * every `make <target>` mentioned in any .md is a real target
 #   * every relative link in the .md files resolves to a real file
+#   * every `#fragment` in a link resolves to a real heading
 #   * every image referenced by a doc exists AND is tracked by git
+#   * markdown hygiene: no trailing whitespace, no tabs, no skipped heading level
 #
 # Deliberately not piped through head/tail: a pipeline reports the pager's exit
 # status, so a failure would look like a success.
@@ -198,6 +200,106 @@ verify_relative_links() {
   (( bad )) || note "relative links: all resolve"
 }
 
+
+# Every `#fragment` resolves to a heading that exists.
+#
+# `verify_relative_links` deliberately drops the fragment before checking, so
+# `docs/faq.md#anything-at-all` passes as long as faq.md exists, and a bare
+# `#section` link is skipped entirely. That is the blind half: the link most
+# likely to rot is the one pointing INTO a document somebody rewrote, and it is
+# exactly the one nothing looked at.
+#
+# The slug rules match GitHub's: lowercase, drop anything that is not
+# alphanumeric/space/hyphen, spaces become hyphens. Written in python because
+# doing it in sed would be write-only.
+verify_anchors() {
+  local out
+  out=$(python3 - <<'PYEOF'
+import os, re, pathlib, sys
+
+def slug(h):
+    s = re.sub(r'`|\*|_|\[|\]|\(|\)', '', h.strip().lower())
+    s = re.sub(r'[^a-z0-9 \-]', '', s)
+    return re.sub(r'\s+', '-', s.strip())
+
+files = sorted(pathlib.Path('.').glob('*.md')) + sorted(pathlib.Path('docs').rglob('*.md'))
+headings = {}
+for f in files:
+    txt = f.read_text()
+    seen, hs = {}, set()
+    for m in re.finditer(r'^(#{1,6})\s+(.*?)\s*$', txt, re.M):
+        base = slug(m.group(2))
+        # GitHub disambiguates repeats with -1, -2, ...
+        n = seen.get(base, 0); seen[base] = n + 1
+        hs.add(base if n == 0 else f'{base}-{n}')
+    headings[str(f)] = hs
+
+bad = 0
+for f in files:
+    for m in re.finditer(r'\]\(([^)]+)\)', f.read_text()):
+        link = m.group(1)
+        if link.startswith('http') or '#' not in link:
+            continue
+        path, frag = link.split('#', 1)
+        # normpath, not as_posix: from docs/faq.md a link to ../README.md
+        # resolves to 'docs/../README.md', which matches no key and would be
+        # reported as "not a scanned file" — rejecting a link that is correct.
+        target = os.path.normpath(f.parent / path) if path else str(f)
+        if target not in headings:
+            print(f"{f} links to '{link}', whose target is not a scanned markdown file")
+            bad += 1
+        elif frag not in headings[target]:
+            print(f"{f} links to '{link}', but '#{frag}' is not a heading there")
+            bad += 1
+sys.exit(1 if bad else 0)
+PYEOF
+  ) || { while read -r l; do [[ -n "$l" ]] && fail "$l"; done <<< "$out"; return; }
+  note "link fragments: all resolve to real headings"
+}
+
+# Markdown hygiene, limited to things that are unambiguously wrong.
+#
+# Not a style opinion: trailing whitespace becomes an invisible <br> in some
+# renderers, a leading tab indents unpredictably across renderers, and a heading
+# level jump (## straight to ####) breaks the document outline that screen
+# readers and verify_anchors both depend on.
+#
+# In python, not grep. The first version used `grep -P`, which is GNU-only: on
+# macOS every call failed with "invalid option -- P" and the function still
+# printed its success line, because the exit status went to the loop and not to
+# the check. A hygiene check that cannot fail on the developer's own machine is
+# worse than no check, since it reports the thing it never looked at.
+verify_markdown_hygiene() {
+  local out
+  out=$(python3 - <<'PYEOF'
+import pathlib, re, sys
+
+files = sorted(pathlib.Path('.').glob('*.md')) + sorted(pathlib.Path('docs').rglob('*.md'))
+bad = 0
+for f in files:
+    prev, fence = 0, False
+    for n, line in enumerate(f.read_text().splitlines(), 1):
+        if line.lstrip().startswith('```'):
+            fence = not fence
+            continue
+        if fence:
+            continue
+        if line != line.rstrip():
+            print(f"{f}:{n} has trailing whitespace"); bad += 1
+        if line.startswith('\t'):
+            print(f"{f}:{n} indents with a tab"); bad += 1
+        m = re.match(r'^(#{1,6}) +\S', line)
+        if m:
+            lvl = len(m.group(1))
+            if prev and lvl > prev + 1:
+                print(f"{f}:{n} jumps from h{prev} to h{lvl}"); bad += 1
+            prev = lvl
+sys.exit(1 if bad else 0)
+PYEOF
+  ) || { while read -r l; do [[ -n "$l" ]] && fail "$l"; done <<< "$out"; return; }
+  note "markdown hygiene: no trailing whitespace, tabs or heading jumps"
+}
+
 # ---------------------------------------------------------------------- run --
 printf 'Docs sync%s\n' "$( ((CHECK)) && printf ' (check only)')"
 sync_block README.md adr-index "$(generate_adr_index)"
@@ -207,6 +309,8 @@ verify_sources_are_documented
 verify_make_targets
 verify_assets_are_tracked
 verify_relative_links
+verify_anchors
+verify_markdown_hygiene
 
 if (( drift )); then
   printf '\nDocumentation is out of date with the code.\n'
