@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 /// The platforms a frontend exists for, for the `--help` text and the refusal
 /// message. Kept as one list so the two cannot disagree.
-const SUPPORTED: &str = "Linux/X11";
+const SUPPORTED: &str = "Linux/X11 and macOS";
 
 /// Answer `--version` and `--help` before touching a toolkit.
 ///
@@ -58,6 +58,14 @@ fn run() -> ExitCode {
     glimpse_x11::run()
 }
 
+/// macOS has a frame and no controls yet, so this puts the frame on screen and
+/// reports the rectangle it would record. The window model is decided in
+/// [ADR 0011](../docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md).
+#[cfg(target_os = "macos")]
+fn run() -> ExitCode {
+    glimpse_macos::run()
+}
+
 /// Built, but with no window model to run.
 ///
 /// The core compiles and is tested on every platform, which is deliberate — it is
@@ -65,7 +73,7 @@ fn run() -> ExitCode {
 /// core is stopped from quietly re-acquiring a Linux assumption in the meantime.
 /// Reaching this message means the core is fine and the frontend is the missing
 /// piece.
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn run() -> ExitCode {
     eprintln!(
         "glimpse: no framing window is implemented for this platform yet.\n\

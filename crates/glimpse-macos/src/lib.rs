@@ -15,8 +15,16 @@
 
 pub mod geometry;
 pub mod grab;
+pub mod layout;
 
 #[cfg(target_os = "macos")]
+pub mod app;
+#[cfg(target_os = "macos")]
+pub mod frame;
+#[cfg(target_os = "macos")]
 pub mod window;
+
+#[cfg(target_os = "macos")]
+pub use app::run;
 
 pub use grab::AvfCapture;

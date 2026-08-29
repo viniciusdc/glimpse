@@ -15,7 +15,7 @@ use gtk::prelude::*;
 use gtk4 as gtk;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSScreen, NSWindow, NSWindowOrderingMode};
-use objc2_foundation::{MainThreadMarker, NSPoint};
+use objc2_foundation::{MainThreadMarker, NSPoint, NSRect};
 
 use crate::geometry::{to_screen_pixels, AppKitRect};
 
@@ -105,6 +105,41 @@ pub fn capture_rect(hole: AppKitRect, mtm: MainThreadMarker) -> Result<ScreenPix
     // from a monitor's reported physical size.
     let scale = primary.backingScaleFactor();
     Ok(to_screen_pixels(hole, height, scale))
+}
+
+/// Place and size a window directly.
+///
+/// Used for the strips, whose geometry is computed rather than inherited. GTK4
+/// removed window positioning entirely — there is no `move` on `GtkWindow` — so
+/// on macOS every strip's position comes through here.
+///
+/// Setting a **child's** own frame is fine and is not the hazard documented on
+/// [`move_frame_to`]. That one is about the *parent* carrying an origin change
+/// while children are attached to it, which stops the children tracking.
+pub fn place(window: &NSWindow, r: AppKitRect) {
+    window.setFrame_display(
+        NSRect::new(
+            NSPoint::new(r.x, r.y),
+            objc2_foundation::NSSize::new(r.w, r.h),
+        ),
+        true,
+    );
+}
+
+/// Lift a window above ordinary windows.
+///
+/// `kCGFloatingWindowLevel`. Not decoration: a framing window that sits at the
+/// normal level cannot be placed over what the user wants to record, because
+/// whatever they are recording is in front of it. The frame is then still on
+/// screen and still correct, and a capture of its hole shows the wrong
+/// application — which reads as a geometry bug rather than a stacking one.
+///
+/// Found exactly that way. The frame reported the right rectangle, every window
+/// was where the layout asked, and a grab of the hole came back showing the
+/// terminal that had focus.
+pub fn set_floating(window: &NSWindow) {
+    const FLOATING: isize = 3;
+    window.setLevel(FLOATING);
 }
 
 /// The AppKit frame of a window, as the flip expects it.

@@ -184,8 +184,12 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/lib.rs            Surface, split by what needs a toolkit
   src/grab.rs           Rect → avfoundation arguments, and the screen device lookup
   src/geometry.rs       The AppKit → capture-rect flip. No AppKit, so tested everywhere
-  src/window.rs         Reaching through GTK to the NSWindow; frame composition
+  src/layout.rs         Where the five windows go. Also toolkit-free, also tested
+  src/window.rs         Reaching through GTK to the NSWindow; placement, lockstep
+  src/frame.rs          The five windows around a hole that is not one
+  src/app.rs            Application entry: put the frame up, report its rect
   examples/record.rs    Record a fixed region end to end, no window involved
+  examples/frame.rs     Show the frame and read its geometry back from the server
 crates/glimpse-x11/     The X11 frontend: GTK4 window, punched input region
   src/lib.rs            Frontend surface
   src/app.rs            Application entry, startup refusals, stale-state sweeps
