@@ -1,6 +1,10 @@
 # 0011 — Why the macOS frame is more than one window
 
-- **Status:** PROPOSED
+- **Status:** PROPOSED. The composition here is **superseded by
+  [ADR 0015](0015-the-frame-is-two-windows.md)** — the frame is two windows, not
+  five, because a window with `ignoresMouseEvents` takes no clicks anywhere and
+  may therefore cover the hole. Everything measured below still holds; only the
+  conclusion drawn from it was wrong.
 - **Date:** 2026-08-27
 - **Relates to:** [ADR 0006](0006-the-header-is-the-chrome.md),
   [ADR 0010](0010-capture-providers-and-a-platform-free-core.md),

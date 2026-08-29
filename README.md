@@ -246,6 +246,7 @@ docs/
   - [0012](docs/adr/0012-a-setting-a-backend-cannot-honour.md) — A setting a backend cannot honour is not offered
   - [0013](docs/adr/0013-macos-ships-an-app-bundle.md) — macOS ships an `.app` bundle
   - [0014](docs/adr/0014-the-chrome-is-shared-the-window-model-is-not.md) — The chrome is shared, the window model is not
+  - [0015](docs/adr/0015-the-frame-is-two-windows.md) — The frame is two windows, and one of them takes no clicks
 <!-- END GENERATED adr-index -->
 
 ## Licence
