@@ -35,7 +35,7 @@ UNAME := $(shell uname -s)
 ifeq ($(UNAME),Linux)
   PKGS := --workspace
 else
-  PKGS := -p glimpse-core -p glimpse -p glimpse-macos
+  PKGS := -p glimpse-core -p glimpse-ui -p glimpse -p glimpse-macos
 endif
 
 # Honour the usual GNU prefix conventions so a packager does not have to patch.
