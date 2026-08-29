@@ -29,8 +29,13 @@ JOBS   := -j 2
 #
 # `glimpse-macos` is in both too, and for a related reason: turning a rectangle
 # into avfoundation arguments is string building, so Linux CI checks the macOS
-# argument construction. It picks up AppKit, and stops being portable, when the
-# window model lands (ADR 0011).
+# argument construction.
+#
+# This comment used to predict that the crate would stop being portable once the
+# window model landed. It landed (ADR 0015) and the prediction was wrong: the
+# AppKit dependencies are target-gated, so `grab.rs`, `geometry.rs` and
+# `layout.rs` still build and test on Linux. What Linux does NOT cover is
+# `window.rs` and `frame.rs` — a green Linux run says nothing about those.
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Linux)
   PKGS := --workspace
@@ -169,8 +174,15 @@ ifeq ($(UNAME),Linux)
 	  && echo 'yes (optional — used by the click-through check)' \
 	  || echo 'missing (optional — only needed for docs/development.md checks)'
 else
+ifeq ($(UNAME),Darwin)
+	@printf '%-16s %s\n' 'frontend:' 'frame only — it places itself and reports its capture rect'
+	@printf '%-16s %s\n' '' 'no controls yet, so it cannot record from the UI'
+	@printf '%-16s ' 'gtk4:'; pkg-config --modversion gtk4 2>/dev/null || echo 'MISSING (brew install gtk4)'
+	@printf '%-16s %s\n' 'screen access:' 'macOS prompts for Screen Recording on first capture'
+else
 	@printf '%-16s %s\n' 'frontend:' 'NONE — no framing window is implemented for $(UNAME) yet'
 	@printf '%-16s %s\n' '' 'glimpse-core still builds and tests here; see make test'
+endif
 endif
 	@printf '%-16s ' 'ffmpeg:'; command -v ffmpeg >/dev/null \
 	  && ffmpeg -version 2>/dev/null | awk 'NR==1' \

@@ -15,7 +15,8 @@
 [![Rust](https://img.shields.io/badge/rust-stable-000000?logo=rust&logoColor=white)](Cargo.toml)
 [![GTK](https://img.shields.io/badge/gtk-4.x-4a86cf?logo=gnome&logoColor=white)](https://gtk-rs.org)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%C2%B7%20X11-lightgrey?logo=linux&logoColor=white)](#building)
+[![Platform](https://img.shields.io/badge/records%20on-Linux%20%C2%B7%20X11-lightgrey?logo=linux&logoColor=white)](#requirements)
+[![macOS](https://img.shields.io/badge/macOS-frame%20only%2C%20in%20progress-f0883e?logo=apple&logoColor=white)](#macos-in-progress)
 
 </div>
 
@@ -56,7 +57,13 @@ of one screen, silently, to one file. There is no audio, no webcam, no editing, 
 streaming, and no full-desktop or multi-monitor capture. If you need those, use
 OBS.
 
-Glimpse runs on **X11 only**. See the FAQ for why.
+Glimpse **records on X11 only** today.
+
+There is a macOS build, and it is honest to call it unfinished: it puts the
+frame on screen and reports the region it would record, but it has no controls,
+so you cannot record with it. The capture backend underneath does work — see
+[macOS (in progress)](#macos-in-progress). Wayland is out by design, and the FAQ
+explains why that is a different application rather than a missing feature.
 
 ## Requirements
 
@@ -70,6 +77,11 @@ Glimpse runs on **X11 only**. See the FAQ for why.
 
 - Rust, stable
 - `libgtk-4-dev` and `pkg-config`
+
+### macOS
+
+Builds and runs the frame only. Needs `gtk4`, `pkg-config` and `ffmpeg` from
+Homebrew. There is no release artifact and no `.app` bundle yet.
 
 ## Installation
 
@@ -113,6 +125,35 @@ To run it without installing:
 cargo run
 ```
 
+### macOS (in progress)
+
+macOS is being built in the open and is **not usable as a recorder yet**. What
+exists today:
+
+```sh
+brew install gtk4 pkg-config ffmpeg
+cargo run                    # puts the frame on screen, prints the region, no controls
+```
+
+It draws the frame, positions it, and reports the exact rectangle it would
+capture. It has no buttons, so there is no way to start a recording from it, and
+`Ctrl-C` is how you quit.
+
+The capture path underneath is real and is checked on every commit — this records
+a fixed region end to end, window included or not:
+
+```sh
+cargo run -p glimpse-macos --example record    # a real GIF, from a fixed rect
+cargo run -p glimpse-macos --example frame     # the frame, with its geometry read back
+```
+
+macOS will ask for Screen Recording permission the first time, and ffmpeg
+captures nothing until it is granted.
+
+What is left is the chrome and the wiring between it and the session — tracked in
+the [macOS milestone](https://github.com/viniciusdc/glimpse/milestones), with the
+window model settled in [ADR 0015](docs/adr/0015-the-frame-is-two-windows.md).
+
 ## Usage
 
 1. Launch Glimpse. Move and resize the window until the hole covers what you want
@@ -136,7 +177,7 @@ recording. The status line at the bottom tells you where the finished file went.
 
 [`docs/faq.md`](docs/faq.md) covers where recordings go, why a GIF is so large,
 why a recording stopped by itself, whether a failed encode lost anything, what the
-arrow next to Record does, and why there is no Wayland, macOS or Windows support.
+arrow next to Record does, and where macOS and Wayland stand.
 
 ## Contributing
 
@@ -212,8 +253,6 @@ scripts/
   check-journeys.sh     Fails if a journey exists that nothing drives
   check-links-external.sh  External links in the docs; only a 404 fails
   install.sh            Installs a release, refusing anything that fails its checksum
-  selftest.sh           Runs the self-test and turns its report into an exit status
-  smoke.sh              Records end to end off-screen, and fails if it did not
   make-demo.py          Draws the README animation, frame by frame
   sync-docs.sh          Regenerates the ADR index; fails the build on doc drift
 docs/
