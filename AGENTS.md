@@ -40,6 +40,12 @@ are common. Only the integer scale factor is trusted.
 deprecated since GTK 4.18 with no replacement. Keep every use of it in that one
 function so the eventual fallback is a single edit.
 
+`glimpse_macos::window::window_nswindow` is the same choke point on the other
+side, for the same reason. Everything that reaches through GTK to an `NSWindow`
+goes through it — placement, floating, click-through, geometry readback. Reaching
+for `gdk_macos_surface_get_native_window` anywhere else spreads the eventual
+breakage across the file instead of confining it.
+
 **Nothing toolkit-shaped goes in `glimpse-core`.** No `gtk4`, no `gdk4-*`, no
 `x11rb`, no `objc2` — the manifest is the enforcement, so the rule holds only for
 as long as that dependency list stays short
@@ -54,6 +60,26 @@ every killed session leaked a temp directory. When you gate a function by
 platform, write what the other platform actually does — and if the answer is
 "nothing", say so in the doc comment and say what it costs.
 
+**A check whose premise expired does not fail. It lies.** A CI step asserted that
+the binary *refuses* on macOS, because macOS had no frontend. When macOS got one,
+the step did not go red — the binary entered the GTK main loop and sat there until
+the 20-minute job timeout killed it, which in the checks list is indistinguishable
+from a slow build. When you change what a platform can do, grep the gates for the
+old answer. The tell was one line at the very end: `Terminate orphan process`.
+
+**A macOS window property is not in effect when the call returns.**
+`setIgnoresMouseEvents:` was very nearly recorded as non-functional on GTK,
+because the flag was set and hit-tested in the same turn and the window server had
+not processed it yet. Pump the run loop before reading back — and read back by
+*hit test*, not by asking the window what it thinks: it will happily report your
+value while the server still holds the old one. See
+[ADR 0015](docs/adr/0015-the-frame-is-two-windows.md).
+
+**There is no `Xvfb` on macOS.** `make headless` and `make smoke` are X11-only, so
+every macOS window check runs on the screen you are using, with no off-screen
+option to fall back to. That makes the two rules below harder rather than
+optional: the grab really is your desktop, and the machine really is in use.
+
 **The self-test PNG is a picture of your screen.** `make selftest`
 grabs whatever the framing window was over. Never attach it to a pull request,
 an issue, or a commit. The README has no screenshot for the same reason.
@@ -66,9 +92,9 @@ session — see [`docs/development.md`](docs/development.md#working-off-screen).
 
 ## Scope discipline
 
-Glimpse records GIF and MP4 and snapshots PNG, through ffmpeg, and the only
-frontend that exists is X11. Wayland is not a missing backend, it is a different
-interaction model — see
+Glimpse records GIF and MP4 and snapshots PNG, through ffmpeg. X11 is the only
+frontend that can *record*; macOS has a frame but no controls. Wayland is not a
+missing backend, it is a different interaction model — see
 [ADR 0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md).
 
 macOS is a different case and is being worked towards
@@ -83,9 +109,16 @@ one:** both backends are selected at compile time, so a trait would buy no
 dispatch. That is ADR 0010's own argument, and it does not weaken as macOS
 matures. Do not read the expired precondition as a gate that has since opened.
 
-What is still missing on macOS is a *frontend* — there is no window, so the binary
-refuses. The window model is decided in
-[ADR 0011](docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md).
+What is still missing on macOS is the *chrome*. The binary no longer refuses: it
+puts up a frame, places it, and reports the rectangle it would capture. It has no
+buttons, so nothing can start a recording.
+
+The window model is decided in
+[ADR 0015](docs/adr/0015-the-frame-is-two-windows.md) — a chrome window and a
+frame window that takes no clicks at all. **Do not build from
+[ADR 0011](docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md):** its
+five-window composition is superseded. Its *measurements* are not, and they are
+still the reference for what GTK does and does not inherit on macOS.
 
 **Do not offer a setting the backend cannot honour.** avfoundation ignores
 `-capture_cursor`, measured, so the macOS frontend does not show the Capture
@@ -106,9 +139,14 @@ one — and note that splitting the crates did not change this. The chain's firs
 three stages need a realized GTK window, so they are still only exercised under
 `make selftest-headless`, never by `cargo test`.
 
-Off Linux, `make check` covers `glimpse-core` and the binary only; `glimpse-x11`
-cannot build against a Quartz-backend GTK. A change touching the X11 frontend is
-**unverified until it has run `make check` on Linux**, whatever it did elsewhere.
+Off Linux, `make check` covers `glimpse-core`, `glimpse-ui`, `glimpse-macos` and
+the binary — everything except `glimpse-x11`, which cannot build against a
+Quartz-backend GTK. A change touching the X11 frontend is **unverified until it
+has run `make check` on Linux**, whatever it did elsewhere.
+
+The reverse holds and is easier to forget: Linux builds `glimpse-macos` because
+its AppKit dependencies are target-gated, so a green Linux run proves its
+portable half compiles and says nothing about `window.rs` or `frame.rs`.
 
 And when the image shows something suspicious, *establish* what it is rather than
 assuming. A red band in a grab once looked exactly like the frame border bleeding
