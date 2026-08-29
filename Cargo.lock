@@ -384,12 +384,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "glimpse-ui"
+version = "0.1.0"
+
+[[package]]
 name = "glimpse-x11"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "gdk4-x11",
  "glimpse-core",
+ "glimpse-ui",
  "gtk4",
  "x11rb",
 ]
