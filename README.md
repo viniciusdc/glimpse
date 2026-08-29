@@ -210,6 +210,7 @@ scripts/
   smoke.sh              Drives one user journey and turns it into an exit status
   selftest.sh           Geometry and input region, with a status the suite can read
   check-journeys.sh     Fails if a journey exists that nothing drives
+  check-links-external.sh  External links in the docs; only a 404 fails
   install.sh            Installs a release, refusing anything that fails its checksum
   selftest.sh           Runs the self-test and turns its report into an exit status
   smoke.sh              Records end to end off-screen, and fails if it did not

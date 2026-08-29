@@ -128,6 +128,13 @@ docs-sync: ## Regenerate generated doc sections and report any drift
 docs-check: ## Fail if the docs have drifted from the code (runs in check + CI)
 	@scripts/sync-docs.sh --check
 
+# Not part of `make check`, and not part of the Docs job's default path either:
+# it needs the network, and a gate that depends on somebody else's uptime is a
+# gate that eventually gets ignored. CI runs it against the changed files only.
+.PHONY: docs-links
+docs-links: ## Check external links in the docs (network; 404 fails, outages do not)
+	@scripts/check-links-external.sh $(FILES)
+
 # `mkdir -p` then `install -m`, never `install -D`: -D is a GNU extension, and
 # BSD install does not create parent directories — the GNU form fails on macOS
 # with a bare "No such file or directory" and exit 71.
