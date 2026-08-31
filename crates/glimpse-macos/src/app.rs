@@ -184,6 +184,24 @@ pub fn run() -> ExitCode {
                 }
             });
 
+            // The status window's height changes at runtime: the sheet is
+            // hidden until a file is written. AppKit grows a window UPWARD from
+            // its origin, so without re-anchoring, a taller status window climbs
+            // over the recording area — the cost ADR 0016 names.
+            //
+            // The surface's `layout` signal, not `default-height`: the window is
+            // auto-sized, so that property never changes and the first attempt
+            // at this never fired once. Same mechanism the X11 frontend uses to
+            // notice its own geometry settling.
+            if let Some(surface) = status_win.surface() {
+                let (f3, s3) = (frame.clone(), status_win.clone());
+                surface.connect_layout(move |_, _, _| {
+                    if let Err(e) = f3.settle_status(&s3) {
+                        eprintln!("glimpse: {e:#}");
+                    }
+                });
+            }
+
             *held.borrow_mut() = Some((frame, chrome));
         });
     });

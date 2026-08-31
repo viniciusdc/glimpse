@@ -184,9 +184,18 @@ impl Frame {
     pub fn settle_status(&self, status_window: &gtk::Window) -> Result<()> {
         let status = window_nswindow(status_window).context("the status bar has no NSWindow")?;
         let got = crate::window::appkit_frame(&status);
+        let want_y = self.layout.frame.y - got.h;
+        if (got.y - want_y).abs() >= 0.5 {
+            // Only when it actually moved, so the log shows the sheet appearing
+            // rather than every layout pass.
+            println!(
+                "glimpse: status re-anchored {}x{} y {} -> {} (frame bottom {})",
+                got.w as i64, got.h as i64, got.y as i64, want_y as i64, self.layout.frame.y as i64,
+            );
+        }
         move_frame_to(
             &status,
-            objc2_foundation::NSPoint::new(self.layout.status.x, self.layout.frame.y - got.h),
+            objc2_foundation::NSPoint::new(self.layout.status.x, want_y),
         );
         Ok(())
     }

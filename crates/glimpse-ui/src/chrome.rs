@@ -704,7 +704,9 @@ impl Chrome {
                                 println!("[smoke] state after cancel:  {:?}", me4.state());
                                 println!("[smoke] ffmpeg alive: {}", ffmpeg_count());
                                 println!("[smoke] status: {}", me4.status.text());
-                                if let Some(a) = me4.window.application() {
+                                if hold_after_selftest() {
+                                    println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD=1");
+                                } else if let Some(a) = me4.window.application() {
                                     a.quit();
                                 }
                             });
@@ -749,7 +751,9 @@ impl Chrome {
                             let m4 = m3.clone();
                             glib::timeout_add_seconds_local_once(5, move || {
                                 println!("[smoke] after retry: {:?}", m4.state());
-                                if let Some(a) = m4.window.application() {
+                                if hold_after_selftest() {
+                                    println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD=1");
+                                } else if let Some(a) = m4.window.application() {
                                     a.quit();
                                 }
                             });
@@ -769,7 +773,9 @@ impl Chrome {
                 let me2 = me.clone();
                 glib::timeout_add_seconds_local_once(3, move || {
                     println!("[smoke] status: {}", me2.status.text());
-                    if let Some(a) = me2.window.application() {
+                    if hold_after_selftest() {
+                        println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD=1");
+                    } else if let Some(a) = me2.window.application() {
                         a.quit();
                     }
                 });
@@ -812,7 +818,9 @@ impl Chrome {
                             let bytes = std::fs::metadata(&v.path).map(|m| m.len()).unwrap_or(0);
                             println!("[smoke] recording: {} ({bytes} bytes)", v.path.display());
                         }
-                        if let Some(a) = me3.window.application() {
+                        if hold_after_selftest() {
+                            println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD=1");
+                        } else if let Some(a) = me3.window.application() {
                             a.quit();
                         }
                     });
@@ -825,7 +833,9 @@ impl Chrome {
         glib::timeout_add_seconds_local_once(3, move || {
             me.status.set_text("self-test running");
             println!("{}", run_selftest(&me.hooks));
-            if let Some(a) = me.window.application() {
+            if hold_after_selftest() {
+                println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD=1");
+            } else if let Some(a) = me.window.application() {
                 a.quit();
             }
         });
@@ -921,6 +931,23 @@ fn grab_through_the_shipping_path(
 // ---------------------------------------------------------------------------
 // The controller: the impure half that drives the pure state machine.
 // ---------------------------------------------------------------------------
+
+/// Whether a finished self-test journey should leave the app on screen.
+///
+/// `GLIMPSE_SELFTEST_HOLD=1`. The journeys quit as soon as they finish, which is
+/// right for CI — a smoke test that leaves a window behind hangs the job. It is
+/// wrong for looking at the result: a screen grab of a macOS window takes a
+/// couple of seconds through avfoundation, by which time the app has gone.
+///
+/// This exists because the macOS status bar sat on the wrong side of the frame
+/// through three merged pull requests. Every automated check passed, because
+/// every one of them asserted on state and output rather than on where things
+/// were. The layout was only wrong to look at.
+fn hold_after_selftest() -> bool {
+    std::env::var("GLIMPSE_SELFTEST_HOLD")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+}
 
 /// How often the driver looks for a finished recording and for a frame that has
 /// moved. Fast enough that a drifted recording is cut within a fraction of a
