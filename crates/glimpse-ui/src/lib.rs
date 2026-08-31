@@ -23,8 +23,27 @@
 /// two themes cannot drift apart structurally — only in colour. The accent and
 /// the recording red are deliberately absent: they are the same in both, because
 /// they carry meaning rather than mood.
+pub mod chrome;
 pub mod hooks;
+pub use chrome::Chrome;
 pub use hooks::PlatformHooks;
+
+/// Whether the window manager draws the frame, rather than the header being the
+/// chrome.
+///
+/// `GLIMPSE_DECORATIONS=server` hands the frame back to the window manager,
+/// because an undecorated window that cannot be resized would break the product
+/// — the frame's size *is* the capture region.
+///
+/// One function, because there are two callers: the chrome sets `decorated` from
+/// it, and the platform decides from it whether to install its own resize edges.
+/// Those were two separate reads with the comparison written out twice, agreeing
+/// only because both spellings matched.
+pub fn system_decorations() -> bool {
+    std::env::var("GLIMPSE_DECORATIONS")
+        .map(|v| v == "server")
+        .unwrap_or(false)
+}
 
 pub struct Palette {
     header_bg: &'static str,

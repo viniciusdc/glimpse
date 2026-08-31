@@ -27,7 +27,7 @@ pub fn run() -> ExitCode {
     // Held for the lifetime of the application rather than leaked. Once a session
     // owns an ffmpeg child and a temp workspace, "reap on every exit path" has to
     // be reachable through Drop, which a forgotten owner can never provide.
-    let framing: Rc<RefCell<Option<Rc<ui::FramingWindow>>>> = Rc::new(RefCell::new(None));
+    let framing: Rc<RefCell<Option<Rc<glimpse_ui::Chrome>>>> = Rc::new(RefCell::new(None));
 
     let refused_c = refused.clone();
     let framing_c = framing.clone();
@@ -65,7 +65,7 @@ pub fn run() -> ExitCode {
             n => eprintln!("glimpse: removed {n} stale staging file(s) from a previous run"),
         }
 
-        let framing_window = ui::FramingWindow::new(app, probe);
+        let framing_window = ui::build(app, probe);
         framing_window.window.present();
         *framing_c.borrow_mut() = Some(framing_window);
     });
