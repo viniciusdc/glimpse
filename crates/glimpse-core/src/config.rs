@@ -110,13 +110,43 @@ impl Default for Config {
 
 /// Where recordings go before the user says otherwise.
 ///
-/// `XDG_VIDEOS_DIR` if the user has one, else `$HOME`. Not `/tmp`: a recording
-/// somebody just made is not scratch data.
+/// `XDG_VIDEOS_DIR` if the user has one, then the platform's own videos folder,
+/// else `$HOME`. Not `/tmp`: a recording somebody just made is not scratch data.
+///
+/// macOS has no XDG anything, so the first check always missed and every
+/// recording landed in the home directory — measured, not guessed: the first
+/// GIF the macOS Record button produced was written to `$HOME/glimpse.gif`.
+/// `~/Movies` is the platform convention and is what Finder's sidebar points at.
+///
+/// `$HOME` stays as the last resort on both. A recording that lands somewhere
+/// unexpected is annoying; one that fails to save because a directory was
+/// missing loses work.
 pub fn default_output_dir() -> PathBuf {
     if let Some(dir) = xdg_user_dir("VIDEOS") {
         return dir;
     }
+    if let Some(dir) = platform_videos_dir() {
+        return dir;
+    }
     home()
+}
+
+/// The platform's conventional videos folder, if it exists.
+///
+/// Existence is checked rather than assumed: `~/Movies` is created by macOS, but
+/// a user can delete it, and writing into a path that is not there fails at the
+/// moment the encode finishes — the worst possible time, because the recording
+/// has already been made.
+#[cfg(target_os = "macos")]
+fn platform_videos_dir() -> Option<PathBuf> {
+    let dir = home().join("Movies");
+    dir.is_dir().then_some(dir)
+}
+
+/// Linux gets its answer from XDG above, so there is nothing else to try.
+#[cfg(not(target_os = "macos"))]
+fn platform_videos_dir() -> Option<PathBuf> {
+    None
 }
 
 fn home() -> PathBuf {

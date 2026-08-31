@@ -1624,18 +1624,29 @@ impl Chrome {
         }
         root.append(&row("Frame rate", seg.upcast_ref()));
 
-        let pointer = gtk::Switch::new();
-        pointer.set_valign(gtk::Align::Center);
-        pointer.set_active(self.config.borrow().capture_mouse);
-        {
-            let me = self.clone();
-            pointer.connect_state_set(move |_, on| {
-                me.config.borrow_mut().capture_mouse = on;
-                me.persist();
-                glib::Propagation::Proceed
-            });
+        // Only where the backend actually honours it. avfoundation ignores
+        // `-capture_cursor`, measured, so on macOS this switch would flip,
+        // persist and change nothing — the same failure as a file that lies
+        // about its contents
+        // ([ADR 0012](../../../docs/adr/0012-a-setting-a-backend-cannot-honour.md)).
+        //
+        // Hidden rather than insensitive: a greyed-out switch invites the
+        // question "what do I have to do to enable this?", and the answer is
+        // nothing, ever, on this platform.
+        if self.hooks.honours_pointer_capture {
+            let pointer = gtk::Switch::new();
+            pointer.set_valign(gtk::Align::Center);
+            pointer.set_active(self.config.borrow().capture_mouse);
+            {
+                let me = self.clone();
+                pointer.connect_state_set(move |_, on| {
+                    me.config.borrow_mut().capture_mouse = on;
+                    me.persist();
+                    glib::Propagation::Proceed
+                });
+            }
+            root.append(&row("Capture pointer", pointer.upcast_ref()));
         }
-        root.append(&row("Capture pointer", pointer.upcast_ref()));
 
         let show_rect = gtk::Button::with_label("Show");
         show_rect.add_css_class("glimpse-sheet-button");

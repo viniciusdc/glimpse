@@ -57,6 +57,9 @@ pub fn build(app: &gtk::Application, probe: Rc<X11Probe>) -> Rc<Chrome> {
                 grab: Box::new(|req| Ok(X11Capture::from_env()?.grab(req))),
                 geometry_settled: Box::new(move || sync_input_region(&sw, &sh, &last)),
                 diagnostics: Box::new(move || x11_diagnostics(&dw, &dh, &dpr)),
+                // x11grab draws the pointer when asked to, so the setting means
+                // something here.
+                honours_pointer_capture: true,
             }
         },
         |window, shell| {

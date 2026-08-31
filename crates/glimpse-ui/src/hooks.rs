@@ -78,6 +78,23 @@ pub struct PlatformHooks {
     /// Inventing a common vocabulary for two unrelated facts would produce a
     /// structure that neither platform fills honestly.
     pub diagnostics: DiagnosticsFn,
+
+    /// Whether this backend actually honours the Capture-pointer setting.
+    ///
+    /// A plain fact rather than a closure: it is fixed per platform and does not
+    /// depend on anything that changes at runtime.
+    ///
+    /// False on macOS. avfoundation ignores `-capture_cursor`, measured, and in
+    /// the OFF direction — the pointer is never drawn. So the switch would flip,
+    /// persist across restarts and change nothing, which
+    /// [ADR 0012](../../../docs/adr/0012-a-setting-a-backend-cannot-honour.md)
+    /// calls the same failure as a file that lies about its contents, and
+    /// decides such a setting is **not offered** on that platform.
+    ///
+    /// That record noted the timing was free because "there is no macOS frontend
+    /// yet, so this is a line in a UI that has not been written". The frontend
+    /// now exists and runs this very chrome, so the line has to be written.
+    pub honours_pointer_capture: bool,
 }
 
 impl PlatformHooks {
@@ -94,6 +111,7 @@ impl PlatformHooks {
             grab: Box::new(|_| anyhow::bail!("no platform: grab is unavailable")),
             geometry_settled: Box::new(|| {}),
             diagnostics: Box::new(|| "no platform".to_string()),
+            honours_pointer_capture: false,
         }
     }
 }
@@ -120,6 +138,13 @@ mod tests {
             capture_mouse: false,
         })
         .is_err());
+    }
+
+    #[test]
+    fn a_backend_that_cannot_honour_pointer_capture_says_so() {
+        // The chrome hides the switch on this, so the default matters: a stub
+        // claiming it works would put a dead control in front of a user.
+        assert!(!PlatformHooks::unavailable().honours_pointer_capture);
     }
 
     #[test]
