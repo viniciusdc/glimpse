@@ -25,7 +25,7 @@
 /// they carry meaning rather than mood.
 pub mod chrome;
 pub mod hooks;
-pub use chrome::{Chrome, Hole};
+pub use chrome::{Chrome, ChromeParts, Hole};
 pub use hooks::PlatformHooks;
 
 /// Whether the window manager draws the frame, rather than the header being the

@@ -53,6 +53,25 @@ pub enum Hole {
     Elsewhere,
 }
 
+/// The chrome's pieces, in the order X11 stacks them.
+///
+/// Handed to `assemble` so a platform can distribute them between windows
+/// instead of only choosing whether to include the hole. macOS puts `header` and
+/// `rule` above the frame and `status` and `sheet` below it
+/// ([ADR 0016](../../../docs/adr/0016-the-chrome-is-above-and-below.md)); X11
+/// leaves them where they are.
+///
+/// Borrowed, not owned: they are already parented to the shell, and a platform
+/// that wants one elsewhere must `remove` it first — which GTK requires anyway,
+/// since a widget has one parent.
+pub struct ChromeParts<'a> {
+    pub shell: &'a gtk::Box,
+    pub header: &'a gtk::Widget,
+    pub rule: &'a gtk::Widget,
+    pub status: &'a gtk::Widget,
+    pub sheet: &'a gtk::Widget,
+}
+
 pub struct Chrome {
     pub window: gtk::ApplicationWindow,
     /// Everything this controller needs from X11, as closures.
@@ -130,7 +149,7 @@ impl Chrome {
         app: &gtk::Application,
         hole_is: Hole,
         make_hooks: impl FnOnce(&gtk::ApplicationWindow, &gtk::Box) -> PlatformHooks,
-        assemble: impl FnOnce(&gtk::ApplicationWindow, &gtk::Box),
+        assemble: impl FnOnce(&gtk::ApplicationWindow, ChromeParts),
     ) -> Rc<Self> {
         let config = Config::load();
         let css = gtk::CssProvider::new();
@@ -364,7 +383,16 @@ impl Chrome {
         // an Overlay carrying resize edges and makes it the single window's
         // child; macOS puts it in the chrome window and leaves the hole to a
         // second, click-through one.
-        assemble(&window, &shell);
+        assemble(
+            &window,
+            ChromeParts {
+                shell: &shell,
+                header: header_handle.upcast_ref(),
+                rule: rule_stack.upcast_ref(),
+                status: status_bar.upcast_ref(),
+                sheet: sheet.upcast_ref(),
+            },
+        );
 
         // Built here, where `window` and `hole` are still locals, so the closures
         // capture clones rather than borrowing the struct being built. GTK
