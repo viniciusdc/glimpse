@@ -10,7 +10,7 @@
 //! target paints nothing (see ADR 0000).
 
 use anyhow::Result;
-use glimpse_x11::{ui::FramingWindow, x11probe::X11Probe};
+use glimpse_x11::x11probe::X11Probe;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use std::rc::Rc;
@@ -22,7 +22,7 @@ fn main() -> Result<()> {
         .build();
 
     app.connect_activate(move |app| {
-        let framing = FramingWindow::new(app, probe.clone());
+        let framing = glimpse_x11::ui::build(app, probe.clone());
         framing.window.present();
         std::mem::forget(framing); // example only: the app owns nothing else
     });
