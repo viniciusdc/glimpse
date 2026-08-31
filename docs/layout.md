@@ -36,6 +36,7 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/layout.rs         Where the two windows go. Also toolkit-free, also tested
   src/window.rs         Reaching through GTK to the NSWindow; placement, lockstep
   src/frame.rs          Two windows; the frame one takes no clicks at all
+  src/hooks.rs          The four platform facts the shared chrome asks for
   src/app.rs            Application entry: put the frame up, report its rect
   examples/record.rs    Record a fixed region end to end, no window involved
   examples/frame.rs     Show the frame and read its geometry back from the server

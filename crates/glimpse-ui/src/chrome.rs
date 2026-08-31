@@ -39,6 +39,20 @@ use glimpse_core::geometry::ScreenPixelRect;
 use glimpse_core::session::{transition, CaptureRequest, Effect, Event, State};
 use glimpse_core::worker::{FileJob, JobEvent, RecordingWorker, WorkerEvent};
 
+/// Where the capture region lives, relative to the chrome.
+///
+/// The one thing the two window models genuinely disagree about, so it is a
+/// parameter rather than an assumption. See
+/// [ADR 0015](../../../docs/adr/0015-the-frame-is-two-windows.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hole {
+    /// A hole in this same window, with clicks passing through it via an input
+    /// region. X11.
+    InChrome,
+    /// A separate window that takes no clicks at all. macOS.
+    Elsewhere,
+}
+
 pub struct Chrome {
     pub window: gtk::ApplicationWindow,
     /// Everything this controller needs from X11, as closures.
@@ -114,6 +128,7 @@ impl Chrome {
     /// so a caller could finish the job would make it possible to forget.
     pub fn new(
         app: &gtk::Application,
+        hole_is: Hole,
         make_hooks: impl FnOnce(&gtk::ApplicationWindow, &gtk::Box) -> PlatformHooks,
         assemble: impl FnOnce(&gtk::ApplicationWindow, &gtk::Box),
     ) -> Rc<Self> {
@@ -335,7 +350,13 @@ impl Chrome {
         shell.add_css_class("state-idle");
         shell.append(&header_handle);
         shell.append(&rule_stack);
-        shell.append(&frame);
+        // The capture region is only part of THIS window on X11. On macOS it is
+        // a second, click-through window, so the chrome must not reserve space
+        // for a hole that is not in it — appending the frame there would push
+        // the header and status bar apart around empty space.
+        if hole_is == Hole::InChrome {
+            shell.append(&frame);
+        }
         shell.append(&status_bar);
         shell.append(&sheet);
 

@@ -49,6 +49,19 @@ fn main() -> anyhow::Result<()> {
         };
         let frame = Frame::new(app, hole);
 
+        // A stand-in chrome window. `Frame` stopped building one when the real
+        // chrome moved to `glimpse-ui` (ADR 0014), and this example is about
+        // where the FRAME lands, so a bare window is the honest stub: it gives
+        // `attach_to` something to parent to without dragging the whole
+        // controller into a geometry check.
+        let chrome_win = gtk::Window::builder()
+            .application(app)
+            .decorated(false)
+            .default_width(frame.layout().chrome.w as i32)
+            .default_height(frame.layout().chrome.h as i32)
+            .build();
+        chrome_win.present();
+
         // Positioning cannot happen here: GTK has not mapped the windows yet, so
         // there is no NSWindow to place. `realize()` returns an error rather
         // than doing nothing if called too early, which is why this is a
@@ -56,7 +69,7 @@ fn main() -> anyhow::Result<()> {
         let app = app.clone();
         let held = held_c.clone();
         glib::timeout_add_seconds_local_once(1, move || {
-            if let Err(e) = report(&frame, &app) {
+            if let Err(e) = report(&frame, &chrome_win) {
                 eprintln!("FAILED: {e:#}");
                 std::process::exit(1);
             }
@@ -69,8 +82,8 @@ fn main() -> anyhow::Result<()> {
         });
     });
 
-    fn report(frame: &Frame, _app: &gtk::Application) -> anyhow::Result<()> {
-        frame.realize()?;
+    fn report(frame: &Frame, chrome_win: &gtk::Window) -> anyhow::Result<()> {
+        frame.attach_to(chrome_win)?;
         // Let AppKit settle before reading anything back; a frame read in the
         // same turn can report the pre-placement geometry.
         let mtm = MainThreadMarker::new().expect("GTK runs on the main thread");
@@ -82,7 +95,7 @@ fn main() -> anyhow::Result<()> {
         }
         println!("  {:<8} {}   <- not a window", "hole", fmt(layout.hole));
 
-        let actual = frame.actual_frames()?;
+        let actual = frame.actual_frames(chrome_win)?;
         println!("\n=== actual, read back from the window server ===");
         let mut all_placed = true;
         for ((name, want), got) in names()

@@ -22,6 +22,8 @@ pub mod app;
 #[cfg(target_os = "macos")]
 pub mod frame;
 #[cfg(target_os = "macos")]
+pub mod hooks;
+#[cfg(target_os = "macos")]
 pub mod window;
 
 #[cfg(target_os = "macos")]
