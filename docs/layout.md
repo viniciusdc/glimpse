@@ -28,6 +28,7 @@ crates/glimpse-core/    Platform-free. No gtk4, no x11rb, no objc2 — by manife
 crates/glimpse-ui/      The chrome: palette, stylesheet, formatters, the platform seam
   src/lib.rs            Shared between frontends; the window model is not
   src/hooks.rs          PlatformHooks: the four things the chrome needs from a platform
+  src/chrome.rs         The header, the status bar, and the controller that drives them
 crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/lib.rs            Surface, split by what needs a toolkit
   src/grab.rs           Rect → avfoundation arguments, and the screen device lookup
@@ -41,7 +42,7 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
 crates/glimpse-x11/     The X11 frontend: GTK4 window, punched input region
   src/lib.rs            Frontend surface
   src/app.rs            Application entry, startup refusals, stale-state sweeps
-  src/ui.rs             The framing window: hole, input region, lock/unlock
+  src/ui.rs             X11's window model: one window, input region, resize edges
   src/x11probe.rs       The X11 boundary — origin, root size, input-shape readback
   src/geometry.rs       WidgetRect → SurfaceRect → ScreenPixelRect, with clipping
   src/grab.rs           Rect → x11grab arguments; the input half of the seam

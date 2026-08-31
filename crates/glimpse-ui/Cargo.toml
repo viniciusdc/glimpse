@@ -23,6 +23,14 @@ repository = "https://github.com/viniciusdc/glimpse"
 # and `GrabCommand`, all of which live in `glimpse-core`, which is toolkit-free
 # by manifest (ADR 0010). So the seam is testable everywhere too, and the four
 # hooks below are exercised on Linux CI without a display.
+# `gtk4` arrived with the widgets, as ADR 0014 said it would.
+#
+# What that record ALSO predicted has not happened: it expected Linux CI to stop
+# covering everything the macOS build compiles. Both CI jobs install GTK — the
+# Linux one for `glimpse-x11`, the macOS one since the window model landed — so
+# this crate is compiled on both, and no feature gate is needed to keep the
+# coverage. The prediction assumed CI had one GTK machine; it has two.
 [dependencies]
 anyhow = { workspace = true }
 glimpse-core = { path = "../glimpse-core" }
+gtk4 = { workspace = true }
