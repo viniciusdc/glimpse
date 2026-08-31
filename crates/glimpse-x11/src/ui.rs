@@ -39,8 +39,6 @@ use crate::x11probe::{self, shape_covers, X11Probe};
 
 pub struct FramingWindow {
     pub window: gtk::ApplicationWindow,
-    hole: gtk::Box,
-    probe: Rc<X11Probe>,
     /// Everything this controller needs from X11, as closures.
     ///
     /// The controller below is 99.4% platform-free — 12 lines of 1948 named X11
@@ -368,10 +366,15 @@ impl FramingWindow {
             },
         });
 
+        // No `hole` and no `probe` field. Both were read only to compute a
+        // capture rect, punch an input region, or fill the self-test — all of
+        // which now go through `hooks`, so the compiler reports them dead.
+        //
+        // That is the useful half of this change stated as a fact rather than a
+        // claim: the controller no longer holds anything X11-shaped. The widget
+        // tree still contains the hole; nothing above it needs to know.
         let me = Rc::new(Self {
             window: window.clone(),
-            hole: hole.clone(),
-            probe: probe.clone(),
             hooks,
             frozen: Cell::new(None),
             state: RefCell::new(State::Idle),
