@@ -386,6 +386,10 @@ dependencies = [
 [[package]]
 name = "glimpse-ui"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "glimpse-core",
+]
 
 [[package]]
 name = "glimpse-x11"

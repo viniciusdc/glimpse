@@ -18,4 +18,11 @@ repository = "https://github.com/viniciusdc/glimpse"
 # with the widgets, not before — and when it does, the presentation could stay
 # behind a feature or in its own module if the coverage turns out to be worth
 # more than the tidiness.
+#
+# `PlatformHooks` did not change that. It names `ScreenPixelRect`, `GrabRequest`
+# and `GrabCommand`, all of which live in `glimpse-core`, which is toolkit-free
+# by manifest (ADR 0010). So the seam is testable everywhere too, and the four
+# hooks below are exercised on Linux CI without a display.
 [dependencies]
+anyhow = { workspace = true }
+glimpse-core = { path = "../glimpse-core" }

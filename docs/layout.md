@@ -25,8 +25,9 @@ crates/glimpse-core/    Platform-free. No gtk4, no x11rb, no objc2 — by manife
   tests/config.rs       Defaults, round-trip, and surviving a corrupt file
   tests/encode.rs       Collision policy, argument shape, real GIF and MP4 encodes
   tests/progress_probe.rs  What ffmpeg's progress output actually looks like
-crates/glimpse-ui/      The chrome: palette, stylesheet, formatters. No deps yet
+crates/glimpse-ui/      The chrome: palette, stylesheet, formatters, the platform seam
   src/lib.rs            Shared between frontends; the window model is not
+  src/hooks.rs          PlatformHooks: the four things the chrome needs from a platform
 crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/lib.rs            Surface, split by what needs a toolkit
   src/grab.rs           Rect → avfoundation arguments, and the screen device lookup

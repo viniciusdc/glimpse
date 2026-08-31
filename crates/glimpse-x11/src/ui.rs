@@ -31,7 +31,7 @@ use glimpse_core::encode::{Canceller, OutputFormat, Progress};
 use glimpse_core::geometry::ScreenPixelRect;
 use glimpse_core::session::{transition, CaptureRequest, Effect, Event, State};
 use glimpse_core::worker::{FileJob, JobEvent, RecordingWorker, WorkerEvent};
-use glimpse_ui::{display_path, human_size, stylesheet, DARK, LIGHT};
+use glimpse_ui::{display_path, human_size, stylesheet, PlatformHooks, DARK, LIGHT};
 
 use crate::geometry::capture_rect;
 use crate::grab::X11Capture;
@@ -41,6 +41,13 @@ pub struct FramingWindow {
     pub window: gtk::ApplicationWindow,
     hole: gtk::Box,
     probe: Rc<X11Probe>,
+    /// Everything this controller needs from X11, as closures.
+    ///
+    /// The controller below is 99.4% platform-free — 12 lines of 1948 named X11
+    /// before this field existed — so the coupling is collected here rather than
+    /// scattered, which is what lets the chrome move to `glimpse-ui` unchanged.
+    /// See [ADR 0014](../../../docs/adr/0014-the-chrome-is-shared-the-window-model-is-not.md).
+    hooks: Rc<PlatformHooks>,
     /// The rect snapshotted when locking, per ADR 0002. `Some` means a session
     /// owns the geometry.
     frozen: Cell<Option<ScreenPixelRect>>,
@@ -332,10 +339,40 @@ impl FramingWindow {
         }
         window.set_child(Some(&overlay));
 
+        // Built here, where `window`, `hole` and `probe` are still locals, so the
+        // closures capture clones rather than borrowing the struct being built.
+        // GTK objects are reference-counted, so a clone is a handle to the same
+        // widget and not a copy of one.
+        let hooks = Rc::new(PlatformHooks {
+            capture_rect: {
+                let (w, h, pr) = (window.clone(), hole.clone(), probe.clone());
+                Box::new(move || capture_rect(&w, &h, &pr))
+            },
+            grab: Box::new(|req| {
+                // `from_env` rather than a `:0` fallback: the rectangle was
+                // computed against whatever display the window is on, and
+                // guessing a different one here would grab the wrong screen
+                // while reporting success.
+                Ok(X11Capture::from_env()?.grab(req))
+            }),
+            geometry_settled: {
+                let (w, h) = (window.clone(), hole.clone());
+                // The memo lives in the closure, so "nothing moved, skip the
+                // round trip" survives across calls without a field for it.
+                let last = Rc::new(Cell::new((0, 0, 0, 0)));
+                Box::new(move || sync_input_region(&w, &h, &last))
+            },
+            diagnostics: {
+                let (w, h, pr) = (window.clone(), hole.clone(), probe.clone());
+                Box::new(move || x11_diagnostics(&w, &h, &pr))
+            },
+        });
+
         let me = Rc::new(Self {
             window: window.clone(),
             hole: hole.clone(),
             probe: probe.clone(),
+            hooks,
             frozen: Cell::new(None),
             state: RefCell::new(State::Idle),
             worker: RefCell::new(None),
@@ -536,7 +573,7 @@ impl FramingWindow {
     /// move under the recorder, or the visible frame and the fixed x11grab
     /// rectangle diverge silently).
     pub fn lock(&self) -> Result<ScreenPixelRect> {
-        let rect = capture_rect(&self.window, &self.hole, &self.probe)?;
+        let rect = (self.hooks.capture_rect)()?;
         if !rect.is_capturable() {
             return Err(anyhow!("frame is off-screen: {}x{}", rect.w, rect.h));
         }
@@ -563,7 +600,7 @@ impl FramingWindow {
     /// checked invariant, not an assumption about what GTK can prevent.
     pub fn geometry_drifted(&self) -> Option<(ScreenPixelRect, ScreenPixelRect)> {
         let frozen = self.frozen.get()?;
-        let now = capture_rect(&self.window, &self.hole, &self.probe).ok()?;
+        let now = (self.hooks.capture_rect)().ok()?;
         (now != frozen).then_some((frozen, now))
     }
 
@@ -579,17 +616,21 @@ impl FramingWindow {
     /// how the spike first "failed" Q2 (ADR 0000) — so the first punch happens
     /// here on realize, after which `layout` keeps it current.
     fn install_input_region_updater(&self) {
-        let hole = self.hole.clone();
+        // Connecting to the surface is X11's business and stays here. What
+        // happens when the geometry settles goes through the hook, so the
+        // controller half of this is the same sentence on both platforms — on
+        // macOS it does nothing, because its frame window took no clicks from the
+        // moment it was created (ADR 0015).
+        let hooks = self.hooks.clone();
         self.window.connect_realize(move |win| {
             let Some(surface) = win.surface() else {
                 eprintln!("glimpse: realized with no surface; click-through disabled");
                 return;
             };
-            let last = Rc::new(Cell::new((0, 0, 0, 0)));
-            sync_input_region(win, &hole, &last);
+            (hooks.geometry_settled)();
 
-            let (hole, win, last) = (hole.clone(), win.clone(), last.clone());
-            surface.connect_layout(move |_, _, _| sync_input_region(&win, &hole, &last));
+            let hooks = hooks.clone();
+            surface.connect_layout(move |_, _, _| (hooks.geometry_settled)());
         });
     }
 }
@@ -805,7 +846,7 @@ impl FramingWindow {
         let me = self.clone();
         glib::timeout_add_seconds_local_once(3, move || {
             me.status.set_text("self-test running");
-            println!("{}", run_selftest(&me.window, &me.hole, &me.probe));
+            println!("{}", run_selftest(&me.hooks));
             if let Some(a) = me.window.application() {
                 a.quit();
             }
@@ -813,14 +854,48 @@ impl FramingWindow {
     }
 }
 
-fn run_selftest(window: &gtk::ApplicationWindow, hole: &gtk::Box, probe: &X11Probe) -> String {
-    let rect = match capture_rect(window, hole, probe) {
+/// The report. Its exact line shape is a contract: `scripts/selftest.sh` greps
+/// for `input shape  : PASS` and `grab         : wrote`, so the alignment below
+/// is load-bearing rather than cosmetic. The platform-specific middle comes from
+/// `diagnostics`, which supplies whole lines for that reason.
+fn run_selftest(hooks: &PlatformHooks) -> String {
+    let rect = match (hooks.capture_rect)() {
         Ok(r) => r,
         Err(e) => return format!("SELFTEST FAILED: geometry: {e:#}"),
     };
+
+    let out = "/tmp/glimpse-selftest.png";
+    let grab = match grab_through_the_shipping_path(hooks, rect, std::path::Path::new(out)) {
+        Ok(()) => format!(
+            "wrote {out} — INSPECT IT: any Glimpse chrome in the image means the rect is wrong"
+        ),
+        Err(e) => format!("FAILED: {e:#}"),
+    };
+
+    format!(
+        "\n=== glimpse self-test ===\n\
+         capture rect : {}x{} at {},{}\n\
+         {}\
+         grab         : {grab}\n",
+        rect.w,
+        rect.h,
+        rect.x,
+        rect.y,
+        (hooks.diagnostics)(),
+    )
+}
+
+/// The X11 half of the self-test report: an X window id, an `xwininfo`
+/// cross-check, and the input shape read back from the server.
+///
+/// None of this exists on macOS — there is no shape to read, because nothing over
+/// the hole takes clicks in the first place (ADR 0015). Hence whole lines of text
+/// rather than a structure: the two platforms have nothing to say to each other
+/// here, and a shared vocabulary would be one neither fills honestly.
+fn x11_diagnostics(window: &gtk::ApplicationWindow, hole: &gtk::Box, probe: &X11Probe) -> String {
     let xid = match x11probe::window_xid(window.upcast_ref()) {
         Ok(x) => x,
-        Err(e) => return format!("SELFTEST FAILED: xid: {e:#}"),
+        Err(e) => return format!("xid          : FAILED: {e:#}\n"),
     };
 
     // Counting bands proves nothing: a window with no shape set can still report
@@ -855,23 +930,12 @@ fn run_selftest(window: &gtk::ApplicationWindow, hole: &gtk::Box, probe: &X11Pro
         .map(|(x, y)| format!("window origin {x},{y}"))
         .unwrap_or_else(|| "unavailable".into());
 
-    let out = "/tmp/glimpse-selftest.png";
-    let grab = grab_through_the_shipping_path(rect, std::path::Path::new(out));
-    let grab = match grab {
-        Ok(()) => format!(
-            "wrote {out} — INSPECT IT: any Glimpse chrome in the image means the rect is wrong"
-        ),
-        Err(e) => format!("FAILED: {e:#}"),
-    };
-
+    // Trailing newline, and no leading one: run_selftest splices this between
+    // two lines it owns, so the block is responsible for terminating itself.
     format!(
-        "\n=== glimpse self-test ===\n\
-         capture rect : {}x{} at {},{}\n\
-         xid          : 0x{xid:x}\n\
+        "xid          : 0x{xid:x}\n\
          xwininfo     : {xwin}\n\
-         input shape  : {shape}\n\
-         grab         : {grab}\n",
-        rect.w, rect.h, rect.x, rect.y
+         input shape  : {shape}\n"
     )
 }
 
@@ -894,12 +958,15 @@ fn run_selftest(window: &gtk::ApplicationWindow, hole: &gtk::Box, probe: &X11Pro
 /// There is now exactly one place in the crate that knows how to spell an
 /// `x11grab` invocation, which makes the divergence unpronounceable rather than
 /// merely fixed — the same move as putting the border on the parent widget.
-fn grab_through_the_shipping_path(rect: ScreenPixelRect, out: &std::path::Path) -> Result<()> {
-    // `from_env` rather than a `:0` fallback: the rectangle was computed against
-    // whatever display the window is on, and guessing a different one here would
-    // grab the wrong screen while reporting success.
-    let backend = X11Capture::from_env()?;
-    let command = backend.grab(&GrabRequest {
+fn grab_through_the_shipping_path(
+    hooks: &PlatformHooks,
+    rect: ScreenPixelRect,
+    out: &std::path::Path,
+) -> Result<()> {
+    // Through the hook for the same reason it went through `X11Capture` before:
+    // there must be exactly one place that knows how to spell an invocation. The
+    // hook is now that place, and it is also what the app itself records with.
+    let command = (hooks.grab)(&GrabRequest {
         rect,
         // A single frame, so no capture rate — the same shape a snapshot takes.
         framerate: None,
@@ -907,7 +974,7 @@ fn grab_through_the_shipping_path(rect: ScreenPixelRect, out: &std::path::Path) 
         // the old inline version, which meant x11grab's default applied and the
         // pointer could land in the middle of a rectangle-alignment check.
         capture_mouse: false,
-    });
+    })?;
 
     let output = std::process::Command::new("ffmpeg")
         .args(command.snapshot_args(out))
@@ -1013,7 +1080,7 @@ impl FramingWindow {
             self.status.set_text("still finishing the last one");
             return;
         }
-        let rect = match capture_rect(&self.window, &self.hole, &self.probe) {
+        let rect = match (self.hooks.capture_rect)() {
             Ok(r) if r.is_capturable() => r,
             Ok(r) => {
                 self.status
@@ -1025,22 +1092,21 @@ impl FramingWindow {
                 return;
             }
         };
-        let backend = match X11Capture::from_env() {
-            Ok(b) => b,
+        let cfg = self.config.borrow();
+        // `None` framerate: a snapshot is a single frame, not a one-frame
+        // recording, so no capture rate is expressed at all.
+        let grab = match (self.hooks.grab)(&GrabRequest {
+            rect,
+            framerate: None,
+            capture_mouse: cfg.capture_mouse,
+        }) {
+            Ok(g) => g,
             Err(e) => {
+                drop(cfg);
                 self.status.set_text(&format!("{e:#}"));
                 return;
             }
         };
-
-        let cfg = self.config.borrow();
-        // `None` framerate: a snapshot is a single frame, not a one-frame
-        // recording, so no capture rate is expressed at all.
-        let grab = backend.grab(&GrabRequest {
-            rect,
-            framerate: None,
-            capture_mouse: cfg.capture_mouse,
-        });
         let destination = cfg.snapshot_destination();
         drop(cfg);
 
@@ -1159,19 +1225,18 @@ impl FramingWindow {
             Effect::None => None,
 
             Effect::StartRecorder(request) => {
-                let backend = match X11Capture::from_env() {
-                    Ok(b) => b,
+                let grab = match (self.hooks.grab)(&GrabRequest {
+                    rect: request.rect,
+                    framerate: Some(request.framerate),
+                    capture_mouse: request.capture_mouse,
+                }) {
+                    Ok(g) => g,
                     Err(e) => return Some(Event::RecorderFailed(format!("{e:#}"))),
                 };
                 let workspace = match Workspace::create() {
                     Ok(w) => w,
                     Err(e) => return Some(Event::RecorderFailed(format!("{e:#}"))),
                 };
-                let grab = backend.grab(&GrabRequest {
-                    rect: request.rect,
-                    framerate: Some(request.framerate),
-                    capture_mouse: request.capture_mouse,
-                });
                 *self.workspace.borrow_mut() = Some(workspace.root().to_path_buf());
                 *self.worker.borrow_mut() = Some(RecordingWorker::start(grab, workspace));
                 None
@@ -1539,7 +1604,7 @@ impl FramingWindow {
         let rect = self
             .frozen
             .get()
-            .or_else(|| capture_rect(&self.window, &self.hole, &self.probe).ok());
+            .or_else(|| (self.hooks.capture_rect)().ok());
         if let Some(r) = rect {
             let text = format!("{} × {}", r.w, r.h);
             if self.size_label.text() != text {
@@ -1935,7 +2000,7 @@ impl FramingWindow {
     }
 
     fn report_capture_rect(self: &Rc<Self>) {
-        match capture_rect(&self.window, &self.hole, &self.probe) {
+        match (self.hooks.capture_rect)() {
             Ok(r) if r.is_capturable() => self
                 .status
                 .set_text(&format!("capture rect: {}x{} at {},{}", r.w, r.h, r.x, r.y)),

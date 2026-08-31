@@ -23,6 +23,9 @@
 /// two themes cannot drift apart structurally — only in colour. The accent and
 /// the recording red are deliberately absent: they are the same in both, because
 /// they carry meaning rather than mood.
+pub mod hooks;
+pub use hooks::PlatformHooks;
+
 pub struct Palette {
     header_bg: &'static str,
     /// The header tints while recording. One of three cues on a window whose
