@@ -377,6 +377,7 @@ dependencies = [
  "anyhow",
  "gdk4-macos",
  "glimpse-core",
+ "glimpse-ui",
  "gtk4",
  "objc2",
  "objc2-app-kit",

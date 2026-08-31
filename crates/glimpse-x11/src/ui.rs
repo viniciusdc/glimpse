@@ -21,7 +21,7 @@ use gtk4 as gtk;
 use std::cell::Cell;
 use std::rc::Rc;
 
-use glimpse_ui::{Chrome, PlatformHooks};
+use glimpse_ui::{Chrome, Hole, PlatformHooks};
 
 use crate::geometry::capture_rect;
 use crate::grab::X11Capture;
@@ -36,6 +36,8 @@ use crate::x11probe::{self, shape_covers, X11Probe};
 pub fn build(app: &gtk::Application, probe: Rc<X11Probe>) -> Rc<Chrome> {
     Chrome::new(
         app,
+        // X11's hole is a region punched out of this same window's input shape.
+        Hole::InChrome,
         move |window, hole| {
             let (w, h, pr) = (window.clone(), hole.clone(), probe.clone());
             let (dw, dh, dpr) = (w.clone(), h.clone(), pr.clone());

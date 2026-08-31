@@ -15,8 +15,13 @@ repository = "https://github.com/viniciusdc/glimpse"
 anyhow = { workspace = true }
 glimpse-core = { path = "../glimpse-core" }
 
+# macOS-scoped, like gtk4 and for the same reason: `geometry`, `grab` and
+# `layout` are portable and Linux CI compiles and tests them. `glimpse-ui` needs
+# GTK, so making it unconditional here would drag GTK onto the Linux build of a
+# crate whose portable half is the thing that check exists to protect.
 [target.'cfg(target_os = "macos")'.dependencies]
 gtk4 = { workspace = true }
+glimpse-ui = { path = "../glimpse-ui" }
 gdk4-macos = { version = "0.11", features = ["v4_8"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = [

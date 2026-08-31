@@ -33,12 +33,19 @@ use objc2_foundation::MainThreadMarker;
 use crate::geometry::AppKitRect;
 use crate::layout::{lay_out, Layout};
 use crate::window::{
-    attach_strips, capture_rect, ignore_mouse_events, place, set_floating, window_nswindow,
+    attach_strips, capture_rect, ignore_mouse_events, move_frame_to, place, set_floating,
+    window_nswindow,
 };
 
 /// Frame thickness in points. Matches the X11 frontend's border.
 pub const BORDER: f64 = 3.0;
-/// Chrome height in points, from the design document via ADR 0006.
+/// The HEADER's height in points, from the design document via ADR 0006.
+///
+/// Not the chrome's height. The chrome is the header plus the status bar, and
+/// since the chrome moved to `glimpse-ui` its height is whatever those widgets
+/// need — measured at 78pt. This is the initial guess the layout is built from;
+/// `attach_to` positions the chrome's bottom-left corner and lets GTK decide the
+/// rest.
 pub const CHROME_HEIGHT: f64 = 44.0;
 
 /// The frame window paints a border and nothing else: the middle must stay
@@ -46,12 +53,26 @@ pub const CHROME_HEIGHT: f64 = 44.0;
 /// the five-window composition could not have, because nothing was over the hole.
 const CSS: &str = "
     window.glimpse-frame  { background: transparent; border: 3px solid #4080f5; }
-    window.glimpse-chrome { background: #282c33; }
+    /* Two classes, not one, so this beats `window.glimpse { transparent }` in
+       the shared stylesheet on specificity rather than on load order. The shared
+       rule is right for X11, where the window must be see-through so the hole
+       is; macOS's chrome window contains no hole, so anything the shell does not
+       paint would show the desktop through the status bar. */
+    window.glimpse.glimpse-chrome { background: #f2f3f5; }
 ";
 
-/// The two windows, and the hole between them.
+/// The frame window, and the layout it shares with the chrome.
+///
+/// The chrome window is NOT built here any more. It comes from
+/// `glimpse_ui::Chrome`, which builds the header, the status bar and the
+/// controller that drives them — the same ones X11 uses (ADR 0014).
+///
+/// This split also fixes an ordering problem. The chrome's `capture_rect` hook
+/// has to ask the frame what it would record, so the frame must exist first;
+/// but the frame has to be attached to the chrome window, which does not exist
+/// until the chrome is built. Building the frame window here and attaching it in
+/// [`Frame::attach_to`] breaks the cycle instead of working around it.
 pub struct Frame {
-    chrome: gtk::Window,
     frame: gtk::Window,
     layout: Layout,
 }
@@ -73,24 +94,35 @@ impl Frame {
         }
 
         let layout = lay_out(hole, BORDER, CHROME_HEIGHT);
-        let chrome = bare_window(app, "glimpse-chrome", layout.chrome);
         let frame = bare_window(app, "glimpse-frame", layout.frame);
-        chrome.present();
         frame.present();
 
-        Self {
-            chrome,
-            frame,
-            layout,
-        }
+        Self { frame, layout }
     }
 
     /// Position both windows, make the frame click-through, and bind it to the
     /// chrome so a move carries.
-    pub fn realize(&self) -> Result<()> {
-        let chrome = window_nswindow(&self.chrome)
-            .context("the chrome has no NSWindow yet — realize() ran before GTK mapped it")?;
-        place(&chrome, self.layout.chrome);
+    ///
+    /// Takes the chrome window rather than owning it: it belongs to
+    /// `glimpse_ui::Chrome`, which knows nothing about `NSWindow`.
+    pub fn attach_to(&self, chrome_window: &gtk::Window) -> Result<()> {
+        let chrome = window_nswindow(chrome_window)
+            .context("the chrome has no NSWindow yet — attach_to ran before GTK mapped it")?;
+
+        // ORIGIN ONLY, deliberately. The chrome's height is GTK's business: it is
+        // whatever the shared widgets need, and those are not ours to predict
+        // from here. Setting a size would be a guess that GTK immediately
+        // overrides — measured at 78pt against a CHROME_HEIGHT of 44, which is
+        // ADR 0006's HEADER height and stopped describing the whole chrome the
+        // moment the status bar arrived with it.
+        //
+        // Positioning the bottom-left corner is what actually matters: AppKit
+        // grows a window upward from its origin, so gluing that corner to the
+        // frame's top edge keeps them flush at any height.
+        move_frame_to(
+            &chrome,
+            objc2_foundation::NSPoint::new(self.layout.chrome.x, self.layout.chrome.y),
+        );
         set_floating(&chrome);
 
         let frame = window_nswindow(&self.frame).context("the frame has no NSWindow yet")?;
@@ -115,17 +147,18 @@ impl Frame {
         &self.layout
     }
 
-    pub fn chrome(&self) -> &gtk::Window {
-        &self.chrome
+    /// The frame window, for callers that need to read it back.
+    pub fn window(&self) -> &gtk::Window {
+        &self.frame
     }
 
     /// Read both windows' positions back from the window server.
     ///
     /// For checking the frame is where it was asked to be rather than where it
     /// was told to go — the two differ whenever something else has an opinion.
-    pub fn actual_frames(&self) -> Result<Vec<AppKitRect>> {
+    pub fn actual_frames(&self, chrome_window: &gtk::Window) -> Result<Vec<AppKitRect>> {
         let mut out = Vec::with_capacity(2);
-        for w in [&self.chrome, &self.frame] {
+        for w in [chrome_window, &self.frame] {
             let ns = window_nswindow(w)?;
             out.push(crate::window::appkit_frame(&ns));
         }
