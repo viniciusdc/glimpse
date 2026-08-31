@@ -26,6 +26,19 @@ pub struct Layout {
     ///
     /// **Covers the hole**, and takes no clicks anywhere.
     pub frame: AppKitRect,
+    /// The status bar and the sheet, BELOW the frame.
+    ///
+    /// Below, because that is where they are on X11 and the layout is part of the
+    /// design ([ADR 0016](../../docs/adr/0016-the-chrome-is-above-and-below.md)).
+    /// The header carries what you set before recording; the status line carries
+    /// what happened after, and the sheet opens directly under the region that
+    /// was just recorded.
+    ///
+    /// Its **top** edge is the anchor — glued to the frame's bottom — so it grows
+    /// downward when the sheet appears. The header is the opposite: its bottom
+    /// edge is the anchor and it grows upward. Getting that backwards puts the
+    /// sheet over the recording area.
+    pub status: AppKitRect,
     /// The region that gets recorded. Not a window, and not the frame window's
     /// bounds: it is the frame inset by the border on every side.
     pub hole: AppKitRect,
@@ -34,7 +47,7 @@ pub struct Layout {
 /// Lay out a frame around `hole`.
 ///
 /// `border` is the visible frame thickness, `chrome_height` the bar above it.
-pub fn lay_out(hole: AppKitRect, border: f64, chrome_height: f64) -> Layout {
+pub fn lay_out(hole: AppKitRect, border: f64, chrome_height: f64, status_height: f64) -> Layout {
     let b = border;
     let frame = AppKitRect {
         x: hole.x - b,
@@ -48,6 +61,15 @@ pub fn lay_out(hole: AppKitRect, border: f64, chrome_height: f64) -> Layout {
             y: frame.y + frame.h,
             w: frame.w,
             h: chrome_height,
+        },
+        // AppKit y counts up, so "below the frame" means a LOWER y. The status
+        // window's top edge is at the frame's bottom, and its origin sits
+        // status_height further down.
+        status: AppKitRect {
+            x: frame.x,
+            y: frame.y - status_height,
+            w: frame.w,
+            h: status_height,
         },
         frame,
         hole,
@@ -91,14 +113,14 @@ mod tests {
     /// records another.
     #[test]
     fn the_hole_and_the_inset_frame_describe_the_same_rectangle() {
-        let l = lay_out(HOLE, B, H);
+        let l = lay_out(HOLE, B, H, 20.0);
         assert_eq!(l.hole_from_frame(B), HOLE);
     }
 
     /// The frame window surrounds the hole by exactly the border on each side.
     #[test]
     fn the_frame_surrounds_the_hole_by_the_border() {
-        let l = lay_out(HOLE, B, H);
+        let l = lay_out(HOLE, B, H, 20.0);
         assert_eq!(l.frame.x, HOLE.x - B);
         assert_eq!(l.frame.y, HOLE.y - B);
         assert_eq!(l.frame.w, HOLE.w + 2.0 * B);
@@ -110,7 +132,7 @@ mod tests {
     /// of one of them.
     #[test]
     fn the_chrome_sits_flush_on_top_of_the_frame() {
-        let l = lay_out(HOLE, B, H);
+        let l = lay_out(HOLE, B, H, 20.0);
         assert_eq!(l.chrome.y, l.frame.y + l.frame.h);
         assert_eq!(l.chrome.x, l.frame.x);
         assert_eq!(l.chrome.w, l.frame.w);
@@ -121,7 +143,7 @@ mod tests {
     /// transparent — but the chrome is not transparent anywhere.
     #[test]
     fn the_chrome_never_overlaps_the_hole() {
-        let l = lay_out(HOLE, B, H);
+        let l = lay_out(HOLE, B, H, 20.0);
         assert!(!overlaps(l.chrome, l.hole));
     }
 
@@ -129,7 +151,7 @@ mod tests {
     /// unconditionally and the invariant would pass while proving nothing.
     #[test]
     fn an_overlapping_chrome_is_detected() {
-        let mut l = lay_out(HOLE, B, H);
+        let mut l = lay_out(HOLE, B, H, 20.0);
         l.chrome = HOLE;
         assert!(overlaps(l.chrome, l.hole));
     }
@@ -138,7 +160,7 @@ mod tests {
     /// than the hole it is meant to surround.
     #[test]
     fn a_zero_border_leaves_the_frame_equal_to_the_hole() {
-        let l = lay_out(HOLE, 0.0, H);
+        let l = lay_out(HOLE, 0.0, H, 20.0);
         assert_eq!(l.frame, HOLE);
         assert_eq!(l.hole_from_frame(0.0), HOLE);
         assert!(!overlaps(l.chrome, l.hole));

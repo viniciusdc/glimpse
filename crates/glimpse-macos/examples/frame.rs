@@ -62,6 +62,16 @@ fn main() -> anyhow::Result<()> {
             .build();
         chrome_win.present();
 
+        // And a stand-in status window, for the same reason: `attach_to` places
+        // and parents all three now (ADR 0016).
+        let status_win = gtk::Window::builder()
+            .application(app)
+            .decorated(false)
+            .default_width(frame.layout().status.w as i32)
+            .default_height(frame.layout().status.h as i32)
+            .build();
+        status_win.present();
+
         // Positioning cannot happen here: GTK has not mapped the windows yet, so
         // there is no NSWindow to place. `realize()` returns an error rather
         // than doing nothing if called too early, which is why this is a
@@ -69,7 +79,7 @@ fn main() -> anyhow::Result<()> {
         let app = app.clone();
         let held = held_c.clone();
         glib::timeout_add_seconds_local_once(1, move || {
-            if let Err(e) = report(&frame, &chrome_win) {
+            if let Err(e) = report(&frame, &chrome_win, &status_win) {
                 eprintln!("FAILED: {e:#}");
                 std::process::exit(1);
             }
@@ -82,8 +92,12 @@ fn main() -> anyhow::Result<()> {
         });
     });
 
-    fn report(frame: &Frame, chrome_win: &gtk::Window) -> anyhow::Result<()> {
-        frame.attach_to(chrome_win)?;
+    fn report(
+        frame: &Frame,
+        chrome_win: &gtk::Window,
+        status_win: &gtk::Window,
+    ) -> anyhow::Result<()> {
+        frame.attach_to(chrome_win, status_win)?;
         // Let AppKit settle before reading anything back; a frame read in the
         // same turn can report the pre-placement geometry.
         let mtm = MainThreadMarker::new().expect("GTK runs on the main thread");

@@ -62,10 +62,12 @@ pub fn build(app: &gtk::Application, probe: Rc<X11Probe>) -> Rc<Chrome> {
                 honours_pointer_capture: true,
             }
         },
-        |window, shell| {
-            // Resize edges sit above everything, at the window's rim only.
+        |window, parts| {
+            // X11 leaves the pieces where the chrome put them: one window, in
+            // the order ADR 0006 designed. Resize edges sit above everything, at
+            // the window's rim only.
             let overlay = gtk::Overlay::new();
-            overlay.set_child(Some(shell));
+            overlay.set_child(Some(parts.shell));
             if !glimpse_ui::system_decorations() {
                 install_resize_edges(window, &overlay);
             }

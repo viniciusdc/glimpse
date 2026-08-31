@@ -41,12 +41,15 @@ use crate::window::{
 pub const BORDER: f64 = 3.0;
 /// The HEADER's height in points, from the design document via ADR 0006.
 ///
-/// Not the chrome's height. The chrome is the header plus the status bar, and
-/// since the chrome moved to `glimpse-ui` its height is whatever those widgets
-/// need — measured at 78pt. This is the initial guess the layout is built from;
-/// `attach_to` positions the chrome's bottom-left corner and lets GTK decide the
-/// rest.
+/// An initial guess only: GTK sizes the window from its widgets, and `attach_to`
+/// anchors the header's BOTTOM edge and lets it grow upward from there.
 pub const CHROME_HEIGHT: f64 = 44.0;
+/// Initial height of the status window, below the frame.
+///
+/// Also a guess, and one that changes at runtime: the sheet is hidden until a
+/// file is written. `settle_status` re-anchors the window's TOP edge afterwards.
+/// See [ADR 0016](../../docs/adr/0016-the-chrome-is-above-and-below.md).
+pub const STATUS_HEIGHT: f64 = 34.0;
 
 /// The frame window paints a border and nothing else: the middle must stay
 /// genuinely transparent or it lands in the recording. That is a failure mode
@@ -93,7 +96,7 @@ impl Frame {
             );
         }
 
-        let layout = lay_out(hole, BORDER, CHROME_HEIGHT);
+        let layout = lay_out(hole, BORDER, CHROME_HEIGHT, STATUS_HEIGHT);
         let frame = bare_window(app, "glimpse-frame", layout.frame);
         frame.present();
 
@@ -105,7 +108,11 @@ impl Frame {
     ///
     /// Takes the chrome window rather than owning it: it belongs to
     /// `glimpse_ui::Chrome`, which knows nothing about `NSWindow`.
-    pub fn attach_to(&self, chrome_window: &gtk::Window) -> Result<()> {
+    pub fn attach_to(
+        &self,
+        chrome_window: &gtk::Window,
+        status_window: &gtk::Window,
+    ) -> Result<()> {
         let chrome = window_nswindow(chrome_window)
             .context("the chrome has no NSWindow yet — attach_to ran before GTK mapped it")?;
 
@@ -132,9 +139,21 @@ impl Frame {
         // hole, and the user cannot touch the application they are recording.
         ignore_mouse_events(&frame);
 
+        // Below the frame, anchored by its TOP edge so it grows downward when
+        // the sheet appears rather than climbing over the recording area
+        // (ADR 0016). Re-applied by `settle_status` once GTK has sized it.
+        let status =
+            window_nswindow(status_window).context("the status bar has no NSWindow yet")?;
+        move_frame_to(
+            &status,
+            objc2_foundation::NSPoint::new(self.layout.status.x, self.layout.status.y),
+        );
+        set_floating(&status);
+
         // After placement, not before: `addChildWindow` records the offset that
-        // exists at the moment it is called.
-        attach_strips(&chrome, std::slice::from_ref(&frame));
+        // exists at the moment it is called. Both children attach to the header,
+        // so one drag carries all three.
+        attach_strips(&chrome, &[frame, status]);
         Ok(())
     }
 
@@ -156,6 +175,28 @@ impl Frame {
     ///
     /// For checking the frame is where it was asked to be rather than where it
     /// was told to go — the two differ whenever something else has an opinion.
+    /// Re-anchor the status window's TOP edge to the frame's bottom.
+    ///
+    /// GTK sizes the window from its widgets, and the sheet changes that at
+    /// runtime. AppKit keeps the origin and grows upward, so a taller status
+    /// window climbs over the recording area unless its origin moves down by the
+    /// difference. Called once GTK has settled, and again when the sheet appears.
+    pub fn settle_status(&self, status_window: &gtk::Window) -> Result<()> {
+        let status = window_nswindow(status_window).context("the status bar has no NSWindow")?;
+        let got = crate::window::appkit_frame(&status);
+        move_frame_to(
+            &status,
+            objc2_foundation::NSPoint::new(self.layout.status.x, self.layout.frame.y - got.h),
+        );
+        Ok(())
+    }
+
+    /// The status window's frame, read back from the window server.
+    pub fn status_frame(&self, status_window: &gtk::Window) -> Result<AppKitRect> {
+        let ns = window_nswindow(status_window)?;
+        Ok(crate::window::appkit_frame(&ns))
+    }
+
     pub fn actual_frames(&self, chrome_window: &gtk::Window) -> Result<Vec<AppKitRect>> {
         let mut out = Vec::with_capacity(2);
         for w in [chrome_window, &self.frame] {

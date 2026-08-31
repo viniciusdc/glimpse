@@ -27,4 +27,5 @@ replacing it.
   - [0013](0013-macos-ships-an-app-bundle.md) — macOS ships an `.app` bundle
   - [0014](0014-the-chrome-is-shared-the-window-model-is-not.md) — The chrome is shared, the window model is not
   - [0015](0015-the-frame-is-two-windows.md) — The frame is two windows, and one of them takes no clicks
+  - [0016](0016-the-chrome-is-above-and-below.md) — The macOS chrome is above *and* below the frame
 <!-- END GENERATED adr-index -->

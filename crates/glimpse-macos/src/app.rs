@@ -61,6 +61,19 @@ pub fn run() -> ExitCode {
         // Frame first: the chrome's capture_rect hook needs something to ask.
         let frame = Rc::new(Frame::new(app, INITIAL_HOLE));
 
+        // The window that sits BELOW the frame. Built here so `assemble` can put
+        // the status bar and the sheet into it (ADR 0016). Undecorated and
+        // unresizable like the frame: GTK4 has no positioning API, so AppKit
+        // places it.
+        let status_win = gtk::Window::builder()
+            .application(app)
+            .decorated(false)
+            .resizable(false)
+            .default_width(frame.layout().status.w as i32)
+            .build();
+        status_win.add_css_class("glimpse");
+        status_win.add_css_class("glimpse-chrome");
+
         // Then the chrome — the same widgets and the same controller X11 builds.
         let chrome = Chrome::new(
             app,
@@ -71,11 +84,29 @@ pub fn run() -> ExitCode {
                 let frame = frame.clone();
                 move |_window, _hole| crate::hooks::for_frame(frame)
             },
-            |window, shell| {
-                // No Overlay and no resize edges: the frame takes no clicks, so
-                // there is nothing to grab at its rim. Resize has to come from
-                // the chrome and is not designed yet — issue #10.
-                window.set_child(Some(shell));
+            {
+                let status_win = status_win.clone();
+                move |window, parts| {
+                    // ADR 0016: header and rule above the frame, status and
+                    // sheet below it, which is where X11 puts them. The pieces
+                    // are the chrome's; only their distribution is ours.
+                    //
+                    // `remove` first, because a GTK widget has one parent and
+                    // they arrive already packed into the shell.
+                    parts.shell.remove(parts.status);
+                    parts.shell.remove(parts.sheet);
+
+                    let below = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                    below.add_css_class("glimpse-shell");
+                    below.append(parts.status);
+                    below.append(parts.sheet);
+                    status_win.set_child(Some(&below));
+
+                    // No Overlay and no resize edges: the frame takes no clicks,
+                    // so there is nothing to grab at its rim. Resize has to come
+                    // from the chrome and is not designed yet — issue #10.
+                    window.set_child(Some(parts.shell));
+                }
             },
         );
         // Width from the layout so the chrome and the frame line up; height -1
@@ -90,6 +121,7 @@ pub fn run() -> ExitCode {
             .window
             .set_default_size(frame.layout().chrome.w as i32, -1);
         chrome.window.present();
+        status_win.present();
 
         let held = held_c.clone();
         let failed = failed_c.clone();
@@ -99,7 +131,7 @@ pub fn run() -> ExitCode {
         // until the main loop has turned. `attach_to` reports that rather than
         // silently doing nothing, which is why its result is checked.
         glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
-            if let Err(e) = attach_and_report(&frame, &chrome) {
+            if let Err(e) = attach_and_report(&frame, &chrome, &status_win) {
                 eprintln!("glimpse: {e:#}");
                 *failed.borrow_mut() = true;
                 app.quit();
@@ -110,8 +142,34 @@ pub fn run() -> ExitCode {
             // will resize the window to fit — so a readback taken in the same
             // turn reports what we asked for and not what we ended up with.
             // That is the same trap ADR 0015 records for ignoresMouseEvents.
-            let (f2, c2) = (frame.clone(), chrome.clone());
+            let (f2, c2, s2) = (frame.clone(), chrome.clone(), status_win.clone());
             glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
+                // Now that GTK has sized it, re-anchor the status window's top
+                // edge to the frame's bottom. Its height is not ours to predict.
+                if let Err(e) = f2.settle_status(&s2) {
+                    eprintln!("glimpse: {e:#}");
+                }
+                // The seam that matters: the status window's TOP edge must sit
+                // exactly on the frame's BOTTOM edge. A gap shows the desktop
+                // between them; an overlap covers the recording area.
+                if let Ok(st) = f2.status_frame(&s2) {
+                    let l = f2.layout();
+                    let top = st.y + st.h;
+                    println!(
+                        "glimpse: status {}x{} at {},{} — top {} vs frame bottom {} {}",
+                        st.w as i64,
+                        st.h as i64,
+                        st.x as i64,
+                        st.y as i64,
+                        top as i64,
+                        l.frame.y as i64,
+                        if (top - l.frame.y).abs() < 0.5 {
+                            "FLUSH"
+                        } else {
+                            "<-- SEAM"
+                        },
+                    );
+                }
                 if let Ok(a) = f2.actual_frames(c2.window.upcast_ref()) {
                     let l = f2.layout();
                     println!(
@@ -137,8 +195,12 @@ pub fn run() -> ExitCode {
     ExitCode::from(glib::ExitCode::get(&code))
 }
 
-fn attach_and_report(frame: &Frame, chrome: &Chrome) -> anyhow::Result<()> {
-    frame.attach_to(chrome.window.upcast_ref())?;
+fn attach_and_report(
+    frame: &Frame,
+    chrome: &Chrome,
+    status_win: &gtk::Window,
+) -> anyhow::Result<()> {
+    frame.attach_to(chrome.window.upcast_ref(), status_win)?;
 
     let mtm = MainThreadMarker::new().expect("GTK runs on the main thread");
     let rect = frame.capture_rect(mtm)?;
@@ -161,18 +223,20 @@ fn attach_and_report(frame: &Frame, chrome: &Chrome) -> anyhow::Result<()> {
             ("chrome", l.chrome, actual[0]),
             ("frame", l.frame, actual[1]),
         ] {
-            let agree = want.w == got.w && want.h == got.h;
+            // Width and origin only. Height is deliberately GTK's, so comparing
+            // it against the layout's guess would report a disagreement on every
+            // run and train whoever reads this to skip the line.
+            let agree = want.w == got.w && want.x == got.x && want.y == got.y;
             println!(
-                "glimpse: {name:6} asked {}x{} at {},{} — got {}x{} at {},{} {}",
-                want.w as i64,
-                want.h as i64,
-                want.x as i64,
-                want.y as i64,
+                "glimpse: {name:6} {}x{} at {},{} (layout asked w={} at {},{}) {}",
                 got.w as i64,
                 got.h as i64,
                 got.x as i64,
                 got.y as i64,
-                if agree { "" } else { "<-- SIZE DISAGREES" },
+                want.w as i64,
+                want.x as i64,
+                want.y as i64,
+                if agree { "" } else { "<-- PLACED WRONG" },
             );
         }
     }
