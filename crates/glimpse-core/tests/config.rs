@@ -128,3 +128,43 @@ fn modes_round_trip_through_their_identifiers() {
     }
     assert_eq!(Mode::from_id("burst"), None);
 }
+
+/// The default output directory must be a real directory, on every platform.
+///
+/// Not an assertion about *which* directory: that differs by platform and by
+/// what the user has configured, and pinning it here would make the test a copy
+/// of the implementation. What matters is the property a recording depends on —
+/// the encode writes into this path when it finishes, and a path that is not
+/// there fails after the recording has already been made.
+///
+/// This exists because macOS silently had no answer. `XDG_VIDEOS_DIR` is the
+/// only lookup there was, macOS has no XDG anything, so it fell through to
+/// `$HOME` and every recording landed in the home directory.
+#[test]
+fn the_default_output_directory_exists() {
+    let dir = glimpse_core::config::default_output_dir();
+    assert!(
+        dir.is_dir(),
+        "default output dir {dir:?} is not a directory — an encode would fail on save"
+    );
+}
+
+/// On macOS specifically, it should be the platform's videos folder when that
+/// folder exists, rather than the home directory.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_prefers_movies_over_home() {
+    let home = std::path::PathBuf::from(std::env::var("HOME").unwrap());
+    let movies = home.join("Movies");
+    if !movies.is_dir() {
+        eprintln!("skipping: ~/Movies does not exist on this machine");
+        return;
+    }
+    // XDG_VIDEOS_DIR wins if set, and setting process-wide environment in a test
+    // races other tests, so only assert when the environment is not overriding.
+    if std::env::var_os("XDG_VIDEOS_DIR").is_some() {
+        eprintln!("skipping: XDG_VIDEOS_DIR is set and takes precedence");
+        return;
+    }
+    assert_eq!(glimpse_core::config::default_output_dir(), movies);
+}

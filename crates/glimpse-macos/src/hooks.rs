@@ -64,5 +64,11 @@ pub fn for_frame(frame: Rc<Frame>) -> PlatformHooks {
                  hole/frame   : {agreement}\n"
             )
         }),
+
+        // avfoundation ignores `-capture_cursor`, measured, and in the OFF
+        // direction: the pointer is never drawn. ADR 0012 decides that a setting
+        // a backend cannot honour is not offered on that platform, so the chrome
+        // hides the switch rather than showing a dead one.
+        honours_pointer_capture: false,
     }
 }
