@@ -136,6 +136,12 @@ docs-check: ## Fail if the docs have drifted from the code (runs in check + CI)
 # Not part of `make check`, and not part of the Docs job's default path either:
 # it needs the network, and a gate that depends on somebody else's uptime is a
 # gate that eventually gets ignored. CI runs it against the changed files only.
+# X11 only: it needs Xvfb, which macOS does not have. On macOS the equivalent is
+# running the app and grabbing the real screen, which is what AGENTS.md describes.
+.PHONY: screenshot
+screenshot: ## Photograph the framing window off-screen (X11; writes glimpse-linux.png)
+	@scripts/screenshot.sh $(OUT)
+
 .PHONY: docs-links
 docs-links: ## Check external links in the docs (network; 404 fails, outages do not)
 	@scripts/check-links-external.sh $(FILES)
