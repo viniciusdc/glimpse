@@ -184,6 +184,35 @@ pub fn run() -> ExitCode {
                 }
             });
 
+            // The status window's height changes at runtime: the sheet is
+            // hidden until a file is written. AppKit grows a window UPWARD from
+            // its origin, so without re-anchoring, a taller status window climbs
+            // over the recording area — the cost ADR 0016 names.
+            //
+            // The surface's `layout` signal, not `default-height`: the window is
+            // auto-sized, so that property never changes and the first attempt
+            // at this never fired once. Same mechanism the X11 frontend uses to
+            // notice its own geometry settling.
+            match status_win.surface() {
+                Some(surface) => {
+                    let (f3, s3) = (frame.clone(), status_win.clone());
+                    surface.connect_layout(move |_, _, _| {
+                        if let Err(e) = f3.settle_status(&s3) {
+                            eprintln!("glimpse: {e:#}");
+                        }
+                    });
+                }
+                // Saying nothing here would put the sheet back over the
+                // recording area with no way to tell that from the fix never
+                // having been made. A measure that cannot be installed has to
+                // report it rather than shrug, the same way `headless.sh`
+                // refuses when it cannot check the display it is about to use.
+                None => eprintln!(
+                    "glimpse: the status bar has no surface, so it will not re-anchor \
+                     when the sheet appears; expect it to cover the recording area"
+                ),
+            }
+
             *held.borrow_mut() = Some((frame, chrome));
         });
     });

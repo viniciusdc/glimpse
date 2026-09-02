@@ -184,10 +184,33 @@ impl Frame {
     pub fn settle_status(&self, status_window: &gtk::Window) -> Result<()> {
         let status = window_nswindow(status_window).context("the status bar has no NSWindow")?;
         let got = crate::window::appkit_frame(&status);
-        move_frame_to(
-            &status,
-            objc2_foundation::NSPoint::new(self.layout.status.x, self.layout.frame.y - got.h),
-        );
+
+        // Anchor to where the frame IS, not to where `lay_out` put it at
+        // startup. `self.layout` is computed once in `new()` and never
+        // recomputed, so a cached absolute position was correct only while this
+        // ran exactly once. It now runs on every layout pass, and the first
+        // thing that moves the assembly would otherwise teleport the status bar
+        // back to the frame's original screen position — a bug that would
+        // surface as soon as the frame can be moved, and read as a fault in the
+        // move rather than here.
+        let frame = window_nswindow(&self.frame).context("the frame has no NSWindow")?;
+        let now = crate::window::appkit_frame(&frame);
+
+        // The horizontal relationship is taken from the layout rather than
+        // assumed equal, so this stays correct if the status bar is ever inset
+        // rather than flush with the frame's left edge.
+        let want_x = now.x + (self.layout.status.x - self.layout.frame.x);
+        let want_y = now.y - got.h;
+
+        if (got.y - want_y).abs() >= 0.5 || (got.x - want_x).abs() >= 0.5 {
+            // Only when it actually moved, so the log shows the sheet appearing
+            // rather than every layout pass.
+            println!(
+                "glimpse: status re-anchored {}x{} to {},{} (frame bottom {})",
+                got.w as i64, got.h as i64, want_x as i64, want_y as i64, now.y as i64,
+            );
+        }
+        move_frame_to(&status, objc2_foundation::NSPoint::new(want_x, want_y));
         Ok(())
     }
 

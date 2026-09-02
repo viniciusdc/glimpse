@@ -25,16 +25,33 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-UI=crates/glimpse-x11/src/ui.rs
+# Every crate's sources, not one path. This gate used to read
+# `crates/glimpse-x11/src/ui.rs`, and when the chrome moved to `glimpse-ui` the
+# journeys went with it. The grep then matched nothing, `implemented` collapsed
+# to the self-test alone, and an empty set is trivially a subset of anything — so
+# this reported "every journey has a caller" while looking at a file that had
+# none. The check written to stop journeys being orphaned had been orphaned
+# itself.
+SOURCES=$(ls crates/*/src/*.rs src/*.rs 2>/dev/null)
 
-# Modes the app answers to. `1` is the geometry self-test and is matched
-# separately because it is tested with `is_ok()` rather than a string compare.
-implemented=$(
-  {
-    grep -oE 'mode == "[a-z0-9-]+"' "$UI" | sed 's/.*"\(.*\)"/\1/'
-    echo 1
-  } | sort -u
-)
+# Modes the app answers to, by string compare.
+string_modes=$(grep -ohE 'mode == "[a-z0-9-]+"' $SOURCES | sed 's/.*"\(.*\)"/\1/' | sort -u)
+
+# Finding none means the journeys moved again, or stopped being written this way.
+# Either way the comparison below becomes vacuous, so refuse rather than pass:
+# that is exactly how this went unnoticed the first time.
+if [[ -z "$string_modes" ]]; then
+  echo "no journey modes found in the workspace sources." >&2
+  echo >&2
+  echo "This greps for 'mode == \"...\"'. Matching nothing makes every" >&2
+  echo "comparison below vacuous and this check would pass having verified" >&2
+  echo "nothing — which is what happened when the chrome moved to glimpse-ui." >&2
+  exit 1
+fi
+
+# `1` is the geometry self-test, matched separately because it is tested with
+# `is_ok()` rather than a string compare.
+implemented=$(printf '%s\n1\n' "$string_modes" | sort -u)
 
 # Modes something actually drives: a make target, or a script invoked by one.
 driven=$(
@@ -63,3 +80,24 @@ if [[ -n "$orphans" ]]; then
 fi
 
 echo "  every journey has a caller"
+
+# Every journey must end through the one helper that honours
+# GLIMPSE_SELFTEST_HOLD. The decision was copied at five journey endings before
+# it was collapsed, and a sixth journey quitting on its own would be invisible:
+# the app just vanishes before it can be looked at, which is the failure the hold
+# was added to prevent. Located by the helper rather than by path, so this does
+# not go blind the next time the file moves.
+holder=$(grep -l 'fn finish_journey' $SOURCES || true)
+if [[ -z "$holder" ]]; then
+  echo "finish_journey not found; journeys have no single place to end" >&2
+  exit 1
+fi
+quits=$(grep -cE '\.quit\(\)' "$holder")
+if [[ "$quits" != "1" ]]; then
+  echo >&2
+  echo "$holder quits in $quits places; it must quit in exactly one." >&2
+  echo "A journey that quits on its own ignores GLIMPSE_SELFTEST_HOLD, and the" >&2
+  echo "symptom is an app that vanishes before anyone can look at it." >&2
+  exit 1
+fi
+echo "  every journey ends through finish_journey"
