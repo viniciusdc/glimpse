@@ -56,12 +56,18 @@ pub const STATUS_HEIGHT: f64 = 34.0;
 /// the five-window composition could not have, because nothing was over the hole.
 const CSS: &str = "
     window.glimpse-frame  { background: transparent; border: 3px solid #4080f5; }
-    /* Two classes, not one, so this beats `window.glimpse { transparent }` in
-       the shared stylesheet on specificity rather than on load order. The shared
-       rule is right for X11, where the window must be see-through so the hole
-       is; macOS's chrome window contains no hole, so anything the shell does not
-       paint would show the desktop through the status bar. */
-    window.glimpse.glimpse-chrome { background: #f2f3f5; }
+    /* No shadow between the pieces. The NSWindow shadow is already off
+       (`drop_shadow_off`); this is the CSS one, and on three stacked windows it
+       would draw down the joins. It is NOT what caused the seam -- removing it
+       alone changed nothing, measured. The seam was the translucent hairline,
+       fixed in the shared stylesheet where the palette lives. */
+    window.glimpse .glimpse-shell { box-shadow: none; }
+
+    /* Square off the edges that meet the frame, so the three windows read as one.
+       The outer corners keep their radius; only the joins are flattened. */
+    window.glimpse-above .glimpse-shell { border-radius: 10px 10px 0 0; }
+    window.glimpse-below .glimpse-shell { border-radius: 0 0 10px 10px; }
+    window.glimpse-frame { border-radius: 0; }
 ";
 
 /// The frame window, and the layout it shares with the chrome.
