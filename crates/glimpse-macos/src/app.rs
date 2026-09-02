@@ -73,6 +73,9 @@ pub fn run() -> ExitCode {
             .build();
         status_win.add_css_class("glimpse");
         status_win.add_css_class("glimpse-chrome");
+        // Distinct from the window above it, so the stylesheet can square the
+        // edge each one presents to the frame.
+        status_win.add_css_class("glimpse-below");
 
         // Then the chrome — the same widgets and the same controller X11 builds.
         let chrome = Chrome::new(
@@ -117,6 +120,7 @@ pub fn run() -> ExitCode {
         // stylesheet makes `window.glimpse` transparent, which is correct for
         // X11 and wrong here.
         chrome.window.add_css_class("glimpse-chrome");
+        chrome.window.add_css_class("glimpse-above");
         chrome
             .window
             .set_default_size(frame.layout().chrome.w as i32, -1);

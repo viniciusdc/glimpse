@@ -108,6 +108,27 @@ pub fn stylesheet(p: &Palette) -> String {
         r#"
 window.glimpse {{ background: transparent; }}
 
+/* The chrome as SEPARATE windows, which is macOS (ADR 0016). Harmless on X11,
+   where nothing carries these classes.
+
+   The shell needs a background there and does not here. On X11 the shell wraps
+   the hole, so it must stay transparent; the hairline under the header composites
+   over the window and nobody notices, because the window is one piece. Split into
+   three windows, that same hairline is 14% black over the DESKTOP -- a 2px strip
+   of whatever is behind the app, right where the join should be invisible.
+
+   Measured on macOS before this rule, mid-edge:
+
+       y 538..553   rgb(229,234,238)   header
+       y 554..557   rgb(23,23,21)      the desktop, through the hairline
+       y 558..563   rgb(0,128,235)     the frame's border
+
+   The colours are the palette's, not literals in `glimpse-macos`: that crate
+   cannot see the theme, and a hardcoded light grey is wrong the moment somebody
+   switches to dark. */
+window.glimpse-above .glimpse-shell {{ background: {header_bg}; }}
+window.glimpse-below .glimpse-shell {{ background: {status_bg}; }}
+
 .glimpse-shell {{
   border-radius: 10px;
   box-shadow: 0 30px 80px {shadow};
