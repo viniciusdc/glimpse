@@ -704,11 +704,7 @@ impl Chrome {
                                 println!("[smoke] state after cancel:  {:?}", me4.state());
                                 println!("[smoke] ffmpeg alive: {}", ffmpeg_count());
                                 println!("[smoke] status: {}", me4.status.text());
-                                if hold_after_selftest() {
-                                    println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD=1");
-                                } else if let Some(a) = me4.window.application() {
-                                    a.quit();
-                                }
+                                finish_journey(&me4.window);
                             });
                         },
                     );
@@ -751,11 +747,7 @@ impl Chrome {
                             let m4 = m3.clone();
                             glib::timeout_add_seconds_local_once(5, move || {
                                 println!("[smoke] after retry: {:?}", m4.state());
-                                if hold_after_selftest() {
-                                    println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD=1");
-                                } else if let Some(a) = m4.window.application() {
-                                    a.quit();
-                                }
+                                finish_journey(&m4.window);
                             });
                         });
                         glib::ControlFlow::Break
@@ -773,11 +765,7 @@ impl Chrome {
                 let me2 = me.clone();
                 glib::timeout_add_seconds_local_once(3, move || {
                     println!("[smoke] status: {}", me2.status.text());
-                    if hold_after_selftest() {
-                        println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD=1");
-                    } else if let Some(a) = me2.window.application() {
-                        a.quit();
-                    }
+                    finish_journey(&me2.window);
                 });
             });
             return;
@@ -818,11 +806,7 @@ impl Chrome {
                             let bytes = std::fs::metadata(&v.path).map(|m| m.len()).unwrap_or(0);
                             println!("[smoke] recording: {} ({bytes} bytes)", v.path.display());
                         }
-                        if hold_after_selftest() {
-                            println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD=1");
-                        } else if let Some(a) = me3.window.application() {
-                            a.quit();
-                        }
+                        finish_journey(&me3.window);
                     });
                 });
             });
@@ -833,11 +817,7 @@ impl Chrome {
         glib::timeout_add_seconds_local_once(3, move || {
             me.status.set_text("self-test running");
             println!("{}", run_selftest(&me.hooks));
-            if hold_after_selftest() {
-                println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD=1");
-            } else if let Some(a) = me.window.application() {
-                a.quit();
-            }
+            finish_journey(&me.window);
         });
     }
 }
@@ -943,10 +923,32 @@ fn grab_through_the_shipping_path(
 /// through three merged pull requests. Every automated check passed, because
 /// every one of them asserted on state and output rather than on where things
 /// were. The layout was only wrong to look at.
+///
+/// Anything but `0` holds. Matching `"1"` exactly meant `=true` silently did not
+/// hold — a quiet failure in the same direction as the bug this flag was added
+/// for, which is the one direction it must not fail in.
 fn hold_after_selftest() -> bool {
-    std::env::var("GLIMPSE_SELFTEST_HOLD")
-        .map(|v| v == "1")
-        .unwrap_or(false)
+    match std::env::var("GLIMPSE_SELFTEST_HOLD") {
+        Ok(v) => !matches!(v.trim(), "" | "0"),
+        Err(_) => false,
+    }
+}
+
+/// End a self-test journey: quit, unless asked to hold.
+///
+/// Every journey ends here rather than deciding for itself. The decision was
+/// copied at five journey endings, which is five chances for the sixth to forget
+/// it — and forgetting is invisible, because the app simply vanishes before it
+/// can be looked at, which is the failure the hold exists to prevent.
+/// `check-journeys.sh` asserts this stays the only place a journey quits.
+fn finish_journey(window: &gtk::ApplicationWindow) {
+    if hold_after_selftest() {
+        println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD is set");
+        return;
+    }
+    if let Some(app) = window.application() {
+        app.quit();
+    }
 }
 
 /// How often the driver looks for a finished recording and for a frame that has
