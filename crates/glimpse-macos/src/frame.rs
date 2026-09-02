@@ -33,8 +33,8 @@ use objc2_foundation::MainThreadMarker;
 use crate::geometry::AppKitRect;
 use crate::layout::{lay_out, Layout};
 use crate::window::{
-    attach_strips, capture_rect, ignore_mouse_events, move_frame_to, place, set_floating,
-    window_nswindow,
+    attach_strips, capture_rect, drop_shadow_off, ignore_mouse_events, move_frame_to, place,
+    set_floating, window_nswindow,
 };
 
 /// Frame thickness in points. Matches the X11 frontend's border.
@@ -130,10 +130,16 @@ impl Frame {
             &chrome,
             objc2_foundation::NSPoint::new(self.layout.chrome.x, self.layout.chrome.y),
         );
+        // Off on all three, not just the chrome. The chrome's shadow lands in
+        // the recording; the others would draw shadows *between* the pieces,
+        // which is what makes the assembly read as three floating cards rather
+        // than one window.
+        drop_shadow_off(&chrome);
         set_floating(&chrome);
 
         let frame = window_nswindow(&self.frame).context("the frame has no NSWindow yet")?;
         place(&frame, self.layout.frame);
+        drop_shadow_off(&frame);
         set_floating(&frame);
         // The whole design. Without this the frame swallows every click in the
         // hole, and the user cannot touch the application they are recording.
@@ -148,6 +154,7 @@ impl Frame {
             &status,
             objc2_foundation::NSPoint::new(self.layout.status.x, self.layout.status.y),
         );
+        drop_shadow_off(&status);
         set_floating(&status);
 
         // After placement, not before: `addChildWindow` records the offset that
