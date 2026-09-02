@@ -374,6 +374,31 @@ jobs:
       - name: Every user journey, off-screen
         run: make journeys
 
+      # A picture of the Linux UI, uploaded as an artifact.
+      #
+      # Every other check in this workflow asserts on state, geometry or output.
+      # None looks at the result, and that is how the macOS status bar shipped on
+      # the wrong side of the frame through three green pull requests, and how a
+      # window shadow got baked into the top of every macOS recording while the
+      # capture rect was provably correct.
+      #
+      # Deliberately NOT an assertion. There is no reference to diff against: the
+      # two platforms are different window models by design (ADR 0015, ADR 0016),
+      # so a pixel diff would be red forever. This is evidence for a person, and
+      # `if: always()` because a failed journey is exactly when you want to see
+      # what the window looked like.
+      - name: Photograph the Linux UI
+        if: always()
+        run: make screenshot
+
+      - name: Upload it
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: linux-ui
+          path: glimpse-linux.png
+          if-no-files-found: warn
+
   test:
     name: Clippy and tests
     needs: changes
