@@ -126,6 +126,30 @@ pub fn place(window: &NSWindow, r: AppKitRect) {
     );
 }
 
+/// Stop a window casting a drop shadow.
+///
+/// The chrome sits directly above the recording area, and AppKit draws its
+/// shadow *downward* — into the region being captured. Measured against the same
+/// screen with the app closed, the top 40 device pixels came out up to 4.4
+/// luminance darker, tapering to exactly zero by row 40:
+///
+/// ```text
+///    y   with-app  without   delta
+///     0     13.5     17.9    -4.4
+///    20     15.1     17.1    -2.0
+///    40     17.1     17.1    +0.0
+/// ```
+///
+/// The capture rect is correct, so no geometry check can see this. It is only
+/// visible in the image, which is the failure ADR 0000 exists to record — and it
+/// would have shipped in every macOS recording.
+///
+/// LICEcap does the same thing for the same reason: `SWELL_SetWindowShadow(hwnd,
+/// false)` in `capturewindow.mm`.
+pub fn drop_shadow_off(window: &NSWindow) {
+    window.setHasShadow(false);
+}
+
 /// Lift a window above ordinary windows.
 ///
 /// `kCGFloatingWindowLevel`. Not decoration: a framing window that sits at the
