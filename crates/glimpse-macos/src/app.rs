@@ -18,6 +18,7 @@ use std::process::ExitCode;
 use std::rc::Rc;
 
 use glimpse_core::config::Config;
+use glimpse_core::shutdown;
 use glimpse_ui::Chrome;
 use objc2_foundation::MainThreadMarker;
 
@@ -78,7 +79,35 @@ pub fn run() -> ExitCode {
         Rc::new(RefCell::new(None));
     let held_c = held.clone();
 
+    // Before anything can record. `Recorder` reaps its child on every exit path
+    // it controls, but none of those run on a signal — and off Linux there is no
+    // `PR_SET_PDEATHSIG` to take ffmpeg down with us, so `Ctrl-C` alone would
+    // leave it recording forever and holding the screen capture device. Issue
+    // #45 is what that costs the *next* recording.
+    shutdown::install();
+
     app.connect_activate(move |app| {
+        // Tidy up after Glimpse processes that were killed before they could.
+        //
+        // **X11 has done this since the sweep existed; macOS never called it.**
+        // Nothing failed and nothing warned, so every abnormally-ended session
+        // left a temp directory behind permanently — and, off Linux where
+        // `die_with_parent` is a no-op, sometimes an ffmpeg still recording into
+        // it. Seven had accumulated on one machine before anybody looked, and
+        // each one held the screen capture device and broke the next recording
+        // (issue #45). A start-up step added to one frontend and not the other
+        // is invisible until it is expensive.
+        match glimpse_core::capture::sweep_stale_workspaces() {
+            0 => {}
+            n => eprintln!("glimpse: removed {n} stale workspace(s) from a previous run"),
+        }
+        // And staging left in the output folder, which the workspace sweep does
+        // not reach because it lives beside the user's finished files.
+        match glimpse_core::encode::sweep_stale_staging(&Config::load().output_dir) {
+            0 => {}
+            n => eprintln!("glimpse: removed {n} stale staging file(s) from a previous run"),
+        }
+
         let stop = StopPaths::default();
         let chrome = crate::ui::build(app, stop.clone());
         chrome.window.present();
@@ -172,6 +201,34 @@ pub fn run() -> ExitCode {
                 Err(e) => eprintln!("glimpse: frame up but the capture rect is unavailable: {e:#}"),
             }
         });
+
+        // Quit the way a user quitting from the UI would, so every destructor
+        // runs and the recorder reaps its child. Polled rather than handled in
+        // the signal itself, which may not touch GTK. 100ms is the same cadence
+        // the chrome's own driver uses; a quarter second of lag on Ctrl-C is not
+        // something anyone can feel.
+        {
+            let app = app.clone();
+            let held = held_c.clone();
+            glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                if !shutdown::requested() {
+                    return glib::ControlFlow::Continue;
+                }
+                eprintln!("glimpse: shutting down");
+                // Explicitly, and NOT by dropping the chrome. The chrome sits in
+                // a reference cycle — window owns widgets, widgets own
+                // callbacks, callbacks hold an `Rc<Chrome>` — so its refcount
+                // never reaches zero and its fields are never dropped. Measured
+                // twice while fixing issue #45: `app.quit()` alone left ffmpeg
+                // recording, and so did dropping every `Rc` this function holds.
+                if let Some((chrome, _, _)) = held.borrow().as_ref() {
+                    chrome.shutdown();
+                }
+                held.borrow_mut().take();
+                app.quit();
+                glib::ControlFlow::Break
+            });
+        }
 
         // Both stop-path slots start empty and are filled by the timeout above,
         // each only if it actually installed.

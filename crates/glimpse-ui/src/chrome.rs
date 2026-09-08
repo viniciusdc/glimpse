@@ -666,6 +666,27 @@ impl Chrome {
         false
     }
 
+    /// Kill and reap anything this chrome owns, before the process ends.
+    ///
+    /// **Dropping the `Chrome` does not do this, and cannot.** It sits in a
+    /// reference cycle — the window owns the widgets, the widgets own the
+    /// callbacks, and every callback holds an `Rc<Chrome>` — so its refcount
+    /// never reaches zero and its fields are never dropped. Measured while
+    /// fixing issue #45: on `SIGINT` the application exited, the `Rc` was
+    /// released, and ffmpeg carried on recording.
+    ///
+    /// Dropping the worker joins its thread, which is what guarantees the child
+    /// is killed and waited on. That can block for the graceful-stop timeout,
+    /// which is the right trade on the way out: a screen recorder that outlives
+    /// its own ffmpeg leaves the capture device held and the next recording
+    /// broken.
+    ///
+    /// Idempotent, and safe to call when nothing is running.
+    pub fn shutdown(&self) {
+        self.worker.borrow_mut().take();
+        self.encoder.borrow_mut().take();
+    }
+
     /// What a recording would capture right now, without freezing anything.
     ///
     /// `lock()` also answers this and is the wrong thing to call for a report:

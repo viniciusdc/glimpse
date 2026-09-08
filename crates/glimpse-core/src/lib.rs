@@ -18,4 +18,5 @@ pub mod config;
 pub mod encode;
 pub mod geometry;
 pub mod session;
+pub mod shutdown;
 pub mod worker;

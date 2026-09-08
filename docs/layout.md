@@ -16,6 +16,7 @@ crates/glimpse-core/    Platform-free. No gtk4, no x11rb, no objc2 — by manife
   src/geometry.rs       The capture rect, and the coordinate convention it carries
   src/config.rs         Persisted settings: theme, format, output folder
   src/session.rs        The recording lifecycle: pure state machine, no I/O
+  src/shutdown.rs       Catching Ctrl-C, so the recorder gets to reap its child
   src/capture.rs        The ffmpeg recorder: owns the child, reaps on every path
   src/worker.rs         Runs the recorder off the UI thread; dropping it reaps
   src/encode.rs         GIF and MP4 encoding, and the atomic commit
