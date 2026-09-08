@@ -34,6 +34,8 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/grab.rs           Rect → avfoundation arguments, and the screen device lookup
   src/geometry.rs       The AppKit → capture-rect flip. No AppKit, so tested everywhere
   src/window.rs         Reaching through GTK to the NSWindow; placement, passthrough
+  src/shortcut.rs       Parsing a key combination. Toolkit-free, so Linux CI tests it
+  src/hotkey.rs         Registering it with Carbon, which needs no permission
   src/stop.rs           What can stop a recording, reported only once it is installed
   src/menubar.rs        The menu bar item: reachable when the window is not
   src/ui.rs             macOS's window model: one window, click-through as a mode

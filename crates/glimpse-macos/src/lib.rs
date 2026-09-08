@@ -19,10 +19,13 @@
 
 pub mod geometry;
 pub mod grab;
+pub mod shortcut;
 pub mod stop;
 
 #[cfg(target_os = "macos")]
 pub mod app;
+#[cfg(target_os = "macos")]
+pub mod hotkey;
 #[cfg(target_os = "macos")]
 pub mod menubar;
 #[cfg(target_os = "macos")]

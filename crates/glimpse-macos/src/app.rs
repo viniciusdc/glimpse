@@ -17,10 +17,13 @@ use std::cell::RefCell;
 use std::process::ExitCode;
 use std::rc::Rc;
 
+use glimpse_core::config::Config;
 use glimpse_ui::Chrome;
 use objc2_foundation::MainThreadMarker;
 
+use crate::hotkey::HotKey;
 use crate::menubar::MenuBarItem;
+use crate::shortcut;
 use crate::stop::StopPaths;
 use crate::window::{set_floating, window_nswindow};
 
@@ -67,10 +70,11 @@ pub fn run() -> ExitCode {
 
     // Held for the lifetime of the application rather than dropped at the end of
     // `activate`. Dropping the chrome drops its GTK window and the frame would
-    // vanish the instant it appeared; dropping the menu bar item removes the one
-    // control that can stop a recording once the window goes click-through.
+    // vanish the instant it appeared; dropping either stop path removes a way to
+    // end a recording once the window has gone click-through, and dropping the
+    // hotkey also unregisters it system-wide.
     #[allow(clippy::type_complexity)]
-    let held: Rc<RefCell<Option<(Rc<Chrome>, Option<Rc<MenuBarItem>>)>>> =
+    let held: Rc<RefCell<Option<(Rc<Chrome>, Option<Rc<MenuBarItem>>, Option<HotKey>)>>> =
         Rc::new(RefCell::new(None));
     let held_c = held.clone();
 
@@ -121,7 +125,37 @@ pub fn run() -> ExitCode {
                 if let Some(slot) = held.borrow_mut().as_mut() {
                     slot.1 = Some(item.clone());
                 }
-                await_placement(item, stop, 12);
+                await_placement(item, stop.clone(), 12);
+            }
+
+            // The global hotkey, from the user's own binding. Registration is
+            // allowed to fail — another application may already own the
+            // combination — and on failure nothing is added to `stop`, so the
+            // chrome never shows a key that nothing is listening for.
+            let spec = Config::load().stop_shortcut;
+            match shortcut::parse(&spec) {
+                Some(sc) => {
+                    let weak = Rc::downgrade(&c);
+                    let key = HotKey::register(&sc, move || {
+                        if let Some(chrome) = weak.upgrade() {
+                            chrome.stop_from_outside();
+                        }
+                    });
+                    if let Some(key) = key {
+                        stop.add(key.display.clone());
+                        if let Some(slot) = held.borrow_mut().as_mut() {
+                            slot.2 = Some(key);
+                        }
+                    }
+                }
+                // Refused rather than approximated. A shortcut the user typed
+                // and Glimpse silently reinterpreted would be worse than none:
+                // they would be pressing the wrong keys and blaming the app.
+                None => eprintln!(
+                    "glimpse: stop_shortcut = {spec:?} in config.toml is not a key \
+                     combination Glimpse can register, so there is no stop hotkey. \
+                     It needs at least one modifier, e.g. \"ctrl+opt+s\"."
+                ),
             }
 
             // `frame up. capture rect` is a contract, not a log line: the macOS
@@ -139,9 +173,9 @@ pub fn run() -> ExitCode {
             }
         });
 
-        // The menu bar item slot starts empty and is filled by the timeout above
-        // once the system has had a chance to place it.
-        *held_c.borrow_mut() = Some((chrome, None));
+        // Both stop-path slots start empty and are filled by the timeout above,
+        // each only if it actually installed.
+        *held_c.borrow_mut() = Some((chrome, None, None));
     });
 
     ExitCode::from(glib::ExitCode::get(&app.run()))

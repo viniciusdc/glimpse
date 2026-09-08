@@ -34,9 +34,33 @@ fn settings_survive_a_round_trip() {
         output_dir: PathBuf::from("/home/u/Recordings"),
         framerate: 24,
         capture_mouse: false,
+        stop_shortcut: "cmd+shift+k".to_string(),
     };
     cfg.save_to(&path).unwrap();
     assert_eq!(Config::load_from(&path), cfg);
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+#[test]
+fn a_config_from_before_a_field_existed_keeps_its_other_settings() {
+    // Adding a field to Config is a migration. Without `serde(default)` on the
+    // struct, a file written by an older Glimpse fails to parse as a whole, and
+    // the fallback below throws away the theme, the output folder and the frame
+    // rate that the user did set. Losing one unknown preference is fine; losing
+    // all the known ones because a newer field is absent is not.
+    let path = scratch("older-version");
+    std::fs::write(
+        &path,
+        "theme = \"dark\"\nmode = \"snapshot\"\nformat = \"mp4\"\n\
+         output_dir = \"/home/u/Recordings\"\nframerate = 24\ncapture_mouse = false\n",
+    )
+    .unwrap();
+    let cfg = Config::load_from(&path);
+    assert_eq!(cfg.theme, Theme::Dark);
+    assert_eq!(cfg.framerate, 24);
+    assert_eq!(cfg.output_dir, PathBuf::from("/home/u/Recordings"));
+    // And the new field takes its default rather than an empty string.
+    assert_eq!(cfg.stop_shortcut, Config::default().stop_shortcut);
     std::fs::remove_dir_all(path.parent().unwrap()).ok();
 }
 
