@@ -253,9 +253,18 @@ jobs:
           # platforms a frontend exists for. That list is a single constant in
           # main.rs shared with the refusal message; if macOS drops out of it the
           # binary is misdescribing itself to whoever runs it.
+          #
+          # The WHOLE string, not just the substring `macOS`. This check used to
+          # grep for `macOS` alone, and passed for a year against a sentence
+          # reading "macOS (frame only, no controls yet)" — long after macOS
+          # could record. A grep loose enough to keep passing while the claim
+          # rots is a check whose premise expired: it does not fail, it agrees
+          # with you. Pinning the exact wording means changing the claim
+          # requires changing this line too, which is the point.
           ./target/release/glimpse --help | tee help.log
-          if ! grep -q 'macOS' help.log; then
-            echo '::error::--help no longer lists macOS as supported'
+          if ! grep -q 'Linux/X11 and macOS' help.log; then
+            echo '::error::--help no longer describes the supported platforms as expected'
+            echo '::error::If this changed on purpose, update the expected string here too.'
             exit 1
           fi
 
@@ -299,8 +308,13 @@ jobs:
   # covers those as policy in 17 instant tests; what nothing covered is that the
   # UI is wired to that policy.
   #
-  # X11 only, because that is the only frontend that exists. This job is what
-  # will notice when the macOS one arrives and these stop being the whole story.
+  # X11 only, and no longer because it is the only frontend: macOS runs the same
+  # chrome now (ADR 0017). It is because these journeys record, and a macOS
+  # runner has no Screen Recording permission, so avfoundation cannot open the
+  # display there. The macOS job checks what it can — that the binary comes up,
+  # places its window and reports a capture rect — and stops short of pressing
+  # Record, rather than pressing it and reporting a permission denial as a
+  # product failure.
   journeys:
     name: User journeys
     needs: changes

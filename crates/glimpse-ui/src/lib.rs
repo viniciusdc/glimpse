@@ -190,11 +190,68 @@ window.glimpse-below .glimpse-shell {{ background: {status_bg}; }}
   text-shadow: none;
 }}
 .glimpse-action-main {{ border-radius: 14px 0 0 14px; padding: 0 12px 0 16px; }}
+/* The action button while the window is passing clicks through: it is a label
+   naming what stops the recording, not a control. It must not read as pressable,
+   because it is not — the window it sits on takes no clicks at all (ADR 0017). */
+/* Written with the state class in the selector, not just `.glimpse-action-hint`.
+   Passthrough is only ever on while recording, and `.state-recording
+   .glimpse-action` matches the same element at the SAME specificity, so source
+   order decided it and the later rule won: the hint painted as a red button
+   that could not be pressed, which is the exact thing it exists to avoid.
+   Naming both classes puts it a class ahead rather than relying on where in
+   this string the block happens to sit. */
+.glimpse-action.glimpse-action-hint,
+.state-recording .glimpse-action.glimpse-action-hint,
+.state-stopping  .glimpse-action.glimpse-action-hint {{
+  background: transparent;
+  border: 1px solid {chip_line};
+  border-radius: 14px;
+  /* The palette's text colour, NOT white. White belongs to the blue and red
+     button fills; on a transparent pill over the light recording header
+     (#f6e9e9) it is illegible, and the whole window is dimmed to 0.8 on top of
+     that. This has to stay readable in both themes at reduced opacity, because
+     it is the only thing on screen saying how to stop the recording. */
+  color: {emphasis};
+  font-size: 12px;
+  padding: 0 14px;
+}}
+.glimpse-action.glimpse-action-hint:hover,
+.state-recording .glimpse-action.glimpse-action-hint:hover {{ background: transparent; }}
+/* The arrow half of the split button.
+   A GtkMenuButton is a CONTAINER, not a button: it wraps an internal GtkButton
+   that carries the theme's own background, border, radius, shadow and metrics.
+   Styling only the MenuButton leaves that inner node untouched, so the arrow
+   rendered as a default-themed white box with its own drop shadow, taller than
+   the blue half beside it and overflowing it top and bottom — on both
+   platforms, visible in the Linux CI screenshot as much as on macOS.
+   `.glimpse-menu > button` below already does this for the hamburger; the split
+   button was simply missed. The Record half needs no such rule because it is a
+   plain GtkButton with no inner node. */
 .glimpse-action-arrow {{
   border-radius: 0 14px 14px 0;
-  padding: 0 8px;
-  min-width: 20px;
+  /* Zero, so the padding is the inner button's alone. Both would double it. */
+  padding: 0;
+  min-width: 28px;
   border-left: 1px solid rgba(0,0,0,0.22);
+}}
+.glimpse-action-arrow > button {{
+  background: transparent;
+  color: #ffffff;
+  border: 0;
+  border-radius: 0 14px 14px 0;
+  box-shadow: none;
+  min-height: 28px;
+  min-width: 28px;
+  padding: 0 6px;
+  margin: 0;
+}}
+/* Transparent through every state, so the hover belongs to the split button as
+   a whole rather than lighting up one half of it. */
+.glimpse-action-arrow > button:hover,
+.glimpse-action-arrow > button:active,
+.glimpse-action-arrow > button:checked {{
+  background: transparent;
+  box-shadow: none;
 }}
 .glimpse-action:hover {{ background: #4a97ea; }}
 .glimpse-action:disabled {{ opacity: 0.55; }}
@@ -208,6 +265,14 @@ window.glimpse-below .glimpse-shell {{ background: {status_bg}; }}
 
 /* Read-only. It reports the active format rather than competing with the split
    button for the same click. */
+/* The chip and the menu sit next to each other, so they share a box: the same
+   height and the same corner radius. They differ in border on purpose — the
+   chip is read-only and says so with an outline, the menu is a control and
+   reveals itself on hover — but a 20px outline beside a 26px button read as a
+   mistake rather than as a distinction.
+   Height comes from `min-height` rather than vertical padding, because padding
+   on a label and padding on a button's inner node do not produce the same box
+   and that is what let them drift apart. */
 .glimpse-chip {{
   color: {meta};
   font-size: 10.5px;
@@ -215,19 +280,43 @@ window.glimpse-below .glimpse-shell {{ background: {status_bg}; }}
   letter-spacing: 0.6px;
   border: 1px solid {chip_line};
   border-radius: 5px;
-  padding: 2px 7px;
+  min-height: 22px;
+  padding: 0 7px;
 }}
 .glimpse-menu {{
   color: {meta};
   background: none;
   border: 0;
   box-shadow: none;
-  min-height: 24px;
-  min-width: 24px;
+  min-height: 22px;
+  min-width: 22px;
   padding: 0;
 }}
 .glimpse-menu:hover {{ background: {hover}; border-radius: 5px; }}
-.glimpse-menu > button {{ padding: 0 4px; min-height: 24px; }}
+/* Same container-versus-inner-node trap as `.glimpse-action-arrow` above: a
+   GtkMenuButton wraps a GtkButton, and the rules on `.glimpse-menu` never
+   reached it. This one HAD a `> button` rule, but it only set padding and
+   min-height — so the theme's background, border, radius and drop shadow were
+   still painting, which is why the hamburger rendered as a cream box larger
+   than the chip beside it. Setting a couple of properties on the inner node is
+   not the same as styling it. */
+.glimpse-menu > button {{
+  background: transparent;
+  color: {meta};
+  border: 0;
+  border-radius: 5px;
+  box-shadow: none;
+  min-height: 22px;
+  min-width: 22px;
+  padding: 0 4px;
+  margin: 0;
+}}
+.glimpse-menu > button:hover,
+.glimpse-menu > button:active,
+.glimpse-menu > button:checked {{
+  background: transparent;
+  box-shadow: none;
+}}
 
 /* The capture region. The border lives on this widget, and the capture target
    inside it paints nothing — see ADR 0000. Never move this border onto

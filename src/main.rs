@@ -13,11 +13,15 @@ use std::process::ExitCode;
 /// The platforms a frontend exists for, for the `--help` text and the refusal
 /// message. Kept as one list so the two cannot disagree.
 ///
-/// The macOS qualifier is not padding. A bare "Linux/X11 and macOS" reads as two
-/// equivalent platforms, and the README has to say the opposite three paragraphs
-/// later — macOS puts the frame up but has no controls, so it cannot record. The
-/// first thing a user runs should not be the thing that misleads them.
-const SUPPORTED: &str = "Linux/X11, and macOS (frame only, no controls yet)";
+/// It used to carry a qualifier — "macOS (frame only, no controls yet)" — which
+/// was true when macOS put up a frame it could not record from. It is not any
+/// more: macOS runs the same chrome X11 runs, in one window
+/// ([ADR 0017](../docs/adr/0017-click-through-is-a-mode-not-a-window.md)).
+///
+/// Note what did *not* catch that. The macOS CI job greps `--help` for the
+/// substring `macOS`, which a sentence saying macOS cannot record passes
+/// happily. A check whose premise expired does not fail; it agrees with you.
+const SUPPORTED: &str = "Linux/X11 and macOS";
 
 /// Answer `--version` and `--help` before touching a toolkit.
 ///
@@ -63,8 +67,11 @@ fn run() -> ExitCode {
     glimpse_x11::run()
 }
 
-/// macOS has a frame and no controls yet, so this puts the frame on screen and
-/// reports the rectangle it would record. The window model is decided in
+/// One window with the hole inside it, the same shape X11 has. It stops taking
+/// clicks for as long as a recording runs, so the user can work in whatever is
+/// being recorded, and the menu bar item or the configured hotkey ends it —
+/// [ADR 0017](../docs/adr/0017-click-through-is-a-mode-not-a-window.md), which
+/// supersedes the multi-window composition of
 /// [ADR 0011](../docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md).
 #[cfg(target_os = "macos")]
 fn run() -> ExitCode {

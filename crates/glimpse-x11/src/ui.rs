@@ -56,6 +56,16 @@ pub fn build(app: &gtk::Application, probe: Rc<X11Probe>) -> Rc<Chrome> {
                 // while reporting success.
                 grab: Box::new(|req| Ok(X11Capture::from_env()?.grab(req))),
                 geometry_settled: Box::new(move || sync_input_region(&sw, &sh, &last)),
+                // Nothing, and nothing to offer. X11's hole is punched out of
+                // the input region and passes clicks at all times, so there is
+                // no mode to enter: the user can reach what is behind the frame
+                // while recording because they always could (ADR 0017).
+                set_passthrough: Box::new(|_| {}),
+                offers_passthrough: false,
+                // The chrome keeps taking clicks while X11 records, so the Stop
+                // button works and is what should be shown. `None` is the answer
+                // that means "show the button", and it is X11's answer forever.
+                stop_hint: Box::new(|| None),
                 diagnostics: Box::new(move || x11_diagnostics(&dw, &dh, &dpr)),
                 // x11grab draws the pointer when asked to, so the setting means
                 // something here.

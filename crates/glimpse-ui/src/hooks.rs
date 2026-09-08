@@ -25,6 +25,11 @@ pub type GrabFn = Box<dyn Fn(&GrabRequest) -> Result<GrabCommand>>;
 pub type GeometrySettledFn = Box<dyn Fn()>;
 /// Platform diagnostics for the self-test report, as whole lines of text.
 pub type DiagnosticsFn = Box<dyn Fn() -> String>;
+/// Turn click-through on or off for as long as the user must reach what is
+/// behind the frame.
+pub type SetPassthroughFn = Box<dyn Fn(bool)>;
+/// What stops a recording while the chrome cannot be clicked, if anything does.
+pub type StopHintFn = Box<dyn Fn() -> Option<String>>;
 
 /// The platform half of the chrome.
 ///
@@ -69,6 +74,62 @@ pub struct PlatformHooks {
     /// X11 needs, not by the design that replaced it on the other side.
     pub geometry_settled: GeometrySettledFn,
 
+    /// The user needs to reach whatever is behind the frame — or has stopped
+    /// needing to.
+    ///
+    /// **Both entries below exist because this crate's own rule was applied, not
+    /// waived.** The header of this file says every hook exists because a
+    /// specific line needs it and nothing was added for symmetry, so two
+    /// additions want naming: `refresh` has to make the window stop taking
+    /// clicks when a recording starts, and it has to render something other than
+    /// a dead button in the place the button would go. Neither is expressible in
+    /// the four hooks that were already here.
+    ///
+    /// X11 does nothing: its hole is punched out of the input region and passes
+    /// clicks at all times, recording or not. macOS turns the whole window
+    /// click-through and dims it, because the middle of a GTK window cannot be
+    /// made click-through there and the mode is the way around that
+    /// ([ADR 0017](../../../docs/adr/0017-click-through-is-a-mode-not-a-window.md)).
+    ///
+    /// Called only on a change, never on every `refresh`. On macOS this reaches
+    /// the window server, and the flag it sets is asynchronous.
+    pub set_passthrough: SetPassthroughFn,
+
+    /// Whether this platform has a passthrough mode at all.
+    ///
+    /// A plain fact, like [`Self::honours_pointer_capture`], and offered for the
+    /// same reason: the chrome shows a "Pass clicks through" switch only where
+    /// it means something. X11 punches its hole out of the input region, so its
+    /// clicks already pass and there is nothing to toggle; a switch there would
+    /// flip, persist and change nothing, which
+    /// [ADR 0012](../../../docs/adr/0012-a-setting-a-backend-cannot-honour.md)
+    /// calls the same failure as a file that lies about its contents.
+    pub offers_passthrough: bool,
+
+    /// The ways to reach Glimpse while its window takes no clicks, phrased for a
+    /// user — `"⌃⌥S or the menu bar"`.
+    ///
+    /// **Paths only, no sentence.** The chrome wraps them, because what the
+    /// sentence should say depends on why the window is unreachable: stopping a
+    /// recording and getting an idle window back are different requests, and the
+    /// platform does not know which one is in progress.
+    ///
+    /// `None` means nothing outside the window can reach it. X11 answers `None`
+    /// always, because its chrome keeps taking clicks and never needs rescuing.
+    /// On macOS it is `None` until something actually installs, so a path is
+    /// never claimed before it exists.
+    ///
+    /// It also gates the passthrough switch: turning the window click-through
+    /// with no way back would lock the user out of their own application.
+    ///
+    /// **A closure rather than a string, because the answer is not fixed.** The
+    /// shortcut is configurable, so a literal would disagree with the binding as
+    /// soon as anyone changed it; and registration can fail outright when
+    /// another application already owns the combination, in which case the
+    /// honest answer names something else that does work. A hint is only worth
+    /// showing if it is rendered from state known to be live.
+    pub stop_hint: StopHintFn,
+
     /// Platform diagnostics for the self-test, as free text.
     ///
     /// Text, and not anything structured, because the two platforms have nothing
@@ -110,6 +171,11 @@ impl PlatformHooks {
             capture_rect: Box::new(|| anyhow::bail!("no platform: capture_rect is unavailable")),
             grab: Box::new(|_| anyhow::bail!("no platform: grab is unavailable")),
             geometry_settled: Box::new(|| {}),
+            offers_passthrough: false,
+            set_passthrough: Box::new(|_| {}),
+            // Not `Some("...")`: a stub that named a stop path would put a
+            // shortcut in front of a user that nothing is listening for.
+            stop_hint: Box::new(|| None),
             diagnostics: Box::new(|| "no platform".to_string()),
             honours_pointer_capture: false,
         }

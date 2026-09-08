@@ -1,7 +1,8 @@
 # Installing Glimpse
 
-Recording works on **X11 only**. macOS builds and runs the frame but has no
-controls yet, so it cannot record — the last section covers what does work there.
+Recording works on **X11 and macOS**. macOS is still marked in progress: it
+cannot be resized and there is no `.app` bundle, and it behaves differently in
+one visible way while recording. The last section covers both.
 
 ## Requirements
 
@@ -18,8 +19,8 @@ controls yet, so it cannot record — the last section covers what does work the
 
 ### macOS
 
-Builds and runs the frame only. Needs `gtk4`, `pkg-config` and `ffmpeg` from
-Homebrew. There is no release artifact and no `.app` bundle yet.
+Needs `gtk4`, `pkg-config` and `ffmpeg` from Homebrew. There is no release
+artifact and no `.app` bundle yet, so it is built from source.
 
 ## Installation
 
@@ -65,29 +66,42 @@ cargo run
 
 ## macOS (in progress)
 
-macOS is being built in the open and is **not usable as a recorder yet**. What
-exists today:
+macOS records, through the same chrome Linux runs. It is still marked in
+progress because it cannot be resized and there is no `.app` bundle yet.
 
 ```sh
 brew install gtk4 pkg-config ffmpeg
-cargo run                    # puts the frame on screen, prints the region, no controls
-```
-
-It draws the frame, positions it, and reports the exact rectangle it would
-capture. It has no buttons, so there is no way to start a recording from it, and
-`Ctrl-C` is how you quit.
-
-The capture path underneath is real and is checked on every commit — this records
-a fixed region end to end, window included or not:
-
-```sh
-cargo run -p glimpse-macos --example record    # a real GIF, from a fixed rect
-cargo run -p glimpse-macos --example frame     # the frame, with its geometry read back
+cargo run
 ```
 
 macOS will ask for Screen Recording permission the first time, and ffmpeg
-captures nothing until it is granted.
+captures nothing until it is granted. The permission is granted to the program
+that launched Glimpse — your terminal — not to the binary.
 
-What is left is the chrome and the wiring between it and the session — tracked in
-the [macOS milestone](https://github.com/viniciusdc/glimpse/milestones), with the
-window model settled in [ADR 0015](adr/0015-the-frame-is-two-windows.md).
+### One thing behaves differently from Linux
+
+**While recording, the window stops accepting clicks entirely**, so you can work
+in whatever is being recorded. That means the Stop button cannot be pressed. Use
+the menu bar item, or the shortcut — `⌃⌥S` unless you change `stop_shortcut` in
+`~/.config/glimpse/config.toml`. The button is replaced by whichever of those is
+actually available while the mode is on.
+
+The same mode is available on demand, as **Pass clicks through** in the header
+menu, so the frame can be positioned over a live application without blocking
+it. The same shortcut turns it back off.
+
+Why it works this way, and the six things measured before settling on it, are in
+[ADR 0017](adr/0017-click-through-is-a-mode-not-a-window.md).
+
+### What is missing
+
+- **Resize.** The frame cannot be dragged bigger or smaller
+  ([issue #10](https://github.com/viniciusdc/glimpse/issues/10)).
+- **An `.app` bundle**, so releases are source-only on macOS
+  ([ADR 0013](adr/0013-macos-ships-an-app-bundle.md)).
+
+The capture path can also be exercised without any window at all:
+
+```sh
+cargo run -p glimpse-macos --example record    # a real GIF, from a fixed rect
+```

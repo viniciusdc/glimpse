@@ -93,6 +93,29 @@ pub struct Config {
     pub output_dir: PathBuf,
     pub framerate: u32,
     pub capture_mouse: bool,
+    /// The key combination that stops a recording from outside the window.
+    ///
+    /// Only macOS has anything to register it with, and only macOS needs one:
+    /// there the window takes no clicks while recording, so the Stop button is
+    /// unreachable by construction (ADR 0017). X11's chrome keeps taking clicks
+    /// and ignores this.
+    ///
+    /// It lives here, in shared config, for the same reason `capture_mouse`
+    /// does — that setting is honoured by x11grab and ignored by avfoundation
+    /// (ADR 0012), and the answer was to keep one config and hide the control
+    /// where it means nothing, not to fork the file per platform.
+    ///
+    /// A string rather than a parsed type: `glimpse-core` has no business
+    /// knowing what a Carbon key code is, and this file is edited by hand.
+    /// Parsing and refusal live in `glimpse_macos::shortcut`.
+    ///
+    /// Every config.toml written before this field existed lacks the key. That
+    /// is safe only because of the `serde(default)` on the struct above: without
+    /// it the whole file would fail to parse, and `load_from` would report it
+    /// and fall back to `Config::default()` — silently discarding the user's
+    /// theme, output folder and frame rate. Adding a field here is a migration
+    /// whether or not anyone calls it one.
+    pub stop_shortcut: String,
 }
 
 impl Default for Config {
@@ -104,8 +127,24 @@ impl Default for Config {
             output_dir: default_output_dir(),
             framerate: 15,
             capture_mouse: true,
+            // Chosen to be unlikely rather than memorable. This registers
+            // SYSTEM-WIDE, so it is taken away from every other application for
+            // as long as Glimpse runs: ⌘⇧S and ⌘⇧G are already spoken for in
+            // most editors and in Finder respectively, and stealing them would
+            // be a worse bug than having no hotkey.
+            stop_shortcut: default_stop_shortcut(),
         }
     }
+}
+
+/// The stop shortcut nobody chose.
+///
+/// Unlikely rather than memorable, on purpose. It registers SYSTEM-WIDE, so it
+/// is taken away from every other application for as long as Glimpse runs: ⌘⇧S
+/// and ⌘⇧G are already spoken for in most editors and in Finder, and stealing
+/// them would be a worse bug than having no hotkey.
+fn default_stop_shortcut() -> String {
+    "ctrl+opt+s".to_string()
 }
 
 /// Where recordings go before the user says otherwise.

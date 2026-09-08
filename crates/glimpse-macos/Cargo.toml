@@ -30,5 +30,21 @@ objc2-app-kit = { version = "0.3", features = [
     "NSResponder",
     "NSScreen",
     "NSView",
+    # The menu bar item: the one way to stop a recording that is reachable while
+    # the window takes no clicks, and that needs no permission of any kind
+    # (ADR 0017).
+    "NSStatusBar",
+    "NSStatusItem",
+    "NSStatusBarButton",
+    "NSButton",
+    "NSControl",
+    "NSMenu",
+    "NSMenuItem",
+    "NSImage",
 ] }
-objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+objc2-foundation = { version = "0.3", features = [
+    "NSGeometry",
+    # The menu bar control (examples/menubar_probe.rs) drives a bare run loop.
+    "NSRunLoop",
+    "NSDate",
+] }

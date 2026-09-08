@@ -1,43 +1,63 @@
 //! Starting the macOS frontend.
 //!
-//! The counterpart of `glimpse_x11::app`, and nearly as small, because the
-//! chrome it starts is the same one X11 runs — the header, the status bar and
-//! the controller all live in `glimpse-ui`
-//! ([ADR 0014](../../docs/adr/0014-the-chrome-is-shared-the-window-model-is-not.md)).
+//! The counterpart of `glimpse_x11::app`, and now almost the same length,
+//! because the two window models finally agree: one window, the chrome and the
+//! hole inside it, in the order [ADR 0006](../../docs/adr/0006-the-header-is-the-chrome.md)
+//! designed ([ADR 0017](../../docs/adr/0017-click-through-is-a-mode-not-a-window.md)).
 //!
-//! What is assembled here is the window model, and only that: a chrome window
-//! holding the shared widgets, and a second window that draws the border and
-//! takes no clicks
-//! ([ADR 0015](../../docs/adr/0015-the-frame-is-two-windows.md)).
-//!
-//! Order matters, and it is the reason `Frame` no longer builds the chrome
-//! window. The chrome's `capture_rect` hook asks the frame what it would record,
-//! so the frame must exist before the chrome is built; the frame must then be
-//! attached to the chrome window, which does not exist until after that. Frame
-//! first, chrome second, attach third.
+//! What used to be here — three windows, `attach_strips`, `settle_status`, a
+//! seam report and a layout to keep them all in step — is gone. The frame passes
+//! clicks by becoming click-through while a recording runs, rather than by being
+//! a separate window that never took any.
 
 use gtk::glib;
 use gtk::prelude::*;
 use gtk4 as gtk;
-use objc2_foundation::MainThreadMarker;
 use std::cell::RefCell;
 use std::process::ExitCode;
 use std::rc::Rc;
 
-use glimpse_ui::{Chrome, Hole};
+use glimpse_core::config::Config;
+use glimpse_ui::Chrome;
+use objc2_foundation::MainThreadMarker;
 
-use crate::frame::Frame;
-use crate::geometry::AppKitRect;
+use crate::hotkey::HotKey;
+use crate::menubar::MenuBarItem;
+use crate::shortcut;
+use crate::stop::StopPaths;
+use crate::window::{set_floating, window_nswindow};
 
-/// Where the frame appears before anything can move it.
+/// Wait for the system to give the menu bar item a slot, then declare it usable.
 ///
-/// AppKit coordinates, so y counts up from the bottom of the primary screen.
-const INITIAL_HOLE: AppKitRect = AppKitRect {
-    x: 400.0,
-    y: 300.0,
-    w: 640.0,
-    h: 400.0,
-};
+/// **Polled rather than assumed, and never assumed on a timer alone.** Placement
+/// is asynchronous and does not happen in the turn the item is created — its
+/// window reads `30x0` at the origin at that moment whether or not it will ever
+/// be placed. Sleeping "long enough" and declaring success is how a stop path
+/// that does not exist gets advertised in place of a Stop button.
+///
+/// Only on success is the path recorded, because the chrome renders whatever
+/// `StopPaths` names.
+fn await_placement(item: Rc<MenuBarItem>, stop: StopPaths, tries_left: u32) {
+    if item.placed() {
+        stop.add("the menu bar");
+        return;
+    }
+    if tries_left == 0 {
+        // The geometry, not a guess at the cause. "The menu bar is full" was the
+        // first guess and it was wrong: a bare NSApplication places the identical
+        // item on this machine after one run loop turn
+        // (`examples/menubar_probe.rs`).
+        eprintln!(
+            "glimpse: the menu bar item was never placed, so a recording cannot be \
+             stopped from there. {}",
+            item.report()
+        );
+        return;
+    }
+    glib::timeout_add_local_once(std::time::Duration::from_millis(250), move || {
+        await_placement(item, stop, tries_left - 1);
+    });
+}
 
 /// Run Glimpse on macOS.
 ///
@@ -49,239 +69,114 @@ pub fn run() -> ExitCode {
         .build();
 
     // Held for the lifetime of the application rather than dropped at the end of
-    // `activate`. Dropping these drops their GTK windows, and the frame would
-    // vanish the instant it appeared.
+    // `activate`. Dropping the chrome drops its GTK window and the frame would
+    // vanish the instant it appeared; dropping either stop path removes a way to
+    // end a recording once the window has gone click-through, and dropping the
+    // hotkey also unregisters it system-wide.
     #[allow(clippy::type_complexity)]
-    let held: Rc<RefCell<Option<(Rc<Frame>, Rc<Chrome>)>>> = Rc::new(RefCell::new(None));
-    let failed = Rc::new(RefCell::new(false));
-
+    let held: Rc<RefCell<Option<(Rc<Chrome>, Option<Rc<MenuBarItem>>, Option<HotKey>)>>> =
+        Rc::new(RefCell::new(None));
     let held_c = held.clone();
-    let failed_c = failed.clone();
+
     app.connect_activate(move |app| {
-        // Frame first: the chrome's capture_rect hook needs something to ask.
-        let frame = Rc::new(Frame::new(app, INITIAL_HOLE));
-
-        // The window that sits BELOW the frame. Built here so `assemble` can put
-        // the status bar and the sheet into it (ADR 0016). Undecorated and
-        // unresizable like the frame: GTK4 has no positioning API, so AppKit
-        // places it.
-        let status_win = gtk::Window::builder()
-            .application(app)
-            .decorated(false)
-            .resizable(false)
-            .default_width(frame.layout().status.w as i32)
-            .build();
-        status_win.add_css_class("glimpse");
-        status_win.add_css_class("glimpse-chrome");
-        // Distinct from the window above it, so the stylesheet can square the
-        // edge each one presents to the frame.
-        status_win.add_css_class("glimpse-below");
-
-        // Then the chrome — the same widgets and the same controller X11 builds.
-        let chrome = Chrome::new(
-            app,
-            // The capture region is the OTHER window, so the shell must not
-            // reserve space for a hole that is not in it.
-            Hole::Elsewhere,
-            {
-                let frame = frame.clone();
-                move |_window, _hole| crate::hooks::for_frame(frame)
-            },
-            {
-                let status_win = status_win.clone();
-                move |window, parts| {
-                    // ADR 0016: header and rule above the frame, status and
-                    // sheet below it, which is where X11 puts them. The pieces
-                    // are the chrome's; only their distribution is ours.
-                    //
-                    // `remove` first, because a GTK widget has one parent and
-                    // they arrive already packed into the shell.
-                    parts.shell.remove(parts.status);
-                    parts.shell.remove(parts.sheet);
-
-                    let below = gtk::Box::new(gtk::Orientation::Vertical, 0);
-                    below.add_css_class("glimpse-shell");
-                    below.append(parts.status);
-                    below.append(parts.sheet);
-                    status_win.set_child(Some(&below));
-
-                    // No Overlay and no resize edges: the frame takes no clicks,
-                    // so there is nothing to grab at its rim. Resize has to come
-                    // from the chrome and is not designed yet — issue #10.
-                    window.set_child(Some(parts.shell));
-                }
-            },
-        );
-        // Width from the layout so the chrome and the frame line up; height -1
-        // so GTK uses the widgets' natural height rather than the builder's
-        // 760x520 default, which is sized for X11's single window and includes
-        // room for a hole this window does not contain.
-        // The chrome window has no hole in it, so it must be opaque. The shared
-        // stylesheet makes `window.glimpse` transparent, which is correct for
-        // X11 and wrong here.
-        chrome.window.add_css_class("glimpse-chrome");
-        chrome.window.add_css_class("glimpse-above");
-        chrome
-            .window
-            .set_default_size(frame.layout().chrome.w as i32, -1);
+        let stop = StopPaths::default();
+        let chrome = crate::ui::build(app, stop.clone());
         chrome.window.present();
-        status_win.present();
 
+        // GTK maps windows asynchronously, so there is no NSWindow to configure
+        // until the main loop has turned.
+        let c = chrome.clone();
         let held = held_c.clone();
-        let failed = failed_c.clone();
-        let app = app.clone();
-
-        // GTK maps windows asynchronously, so there is no NSWindow to position
-        // until the main loop has turned. `attach_to` reports that rather than
-        // silently doing nothing, which is why its result is checked.
         glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
-            if let Err(e) = attach_and_report(&frame, &chrome, &status_win) {
-                eprintln!("glimpse: {e:#}");
-                *failed.borrow_mut() = true;
-                app.quit();
-                return;
-            }
-            // Read the geometry back a SECOND time, a beat later. `place` sets
-            // the NSWindow frame, but GTK lays out its content afterwards and
-            // will resize the window to fit — so a readback taken in the same
-            // turn reports what we asked for and not what we ended up with.
-            // That is the same trap ADR 0015 records for ignoresMouseEvents.
-            let (f2, c2, s2) = (frame.clone(), chrome.clone(), status_win.clone());
-            glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
-                // Now that GTK has sized it, re-anchor the status window's top
-                // edge to the frame's bottom. Its height is not ours to predict.
-                if let Err(e) = f2.settle_status(&s2) {
-                    eprintln!("glimpse: {e:#}");
-                }
-                // The seam that matters: the status window's TOP edge must sit
-                // exactly on the frame's BOTTOM edge. A gap shows the desktop
-                // between them; an overlap covers the recording area.
-                if let Ok(st) = f2.status_frame(&s2) {
-                    let l = f2.layout();
-                    let top = st.y + st.h;
-                    println!(
-                        "glimpse: status {}x{} at {},{} — top {} vs frame bottom {} {}",
-                        st.w as i64,
-                        st.h as i64,
-                        st.x as i64,
-                        st.y as i64,
-                        top as i64,
-                        l.frame.y as i64,
-                        if (top - l.frame.y).abs() < 0.5 {
-                            "FLUSH"
-                        } else {
-                            "<-- SEAM"
-                        },
-                    );
-                }
-                if let Ok(a) = f2.actual_frames(c2.window.upcast_ref()) {
-                    let l = f2.layout();
-                    println!(
-                        "glimpse: settled chrome {}x{} at {},{} (layout said {}x{})",
-                        a[0].w as i64,
-                        a[0].h as i64,
-                        a[0].x as i64,
-                        a[0].y as i64,
-                        l.chrome.w as i64,
-                        l.chrome.h as i64,
-                    );
-                }
-            });
-
-            // The status window's height changes at runtime: the sheet is
-            // hidden until a file is written. AppKit grows a window UPWARD from
-            // its origin, so without re-anchoring, a taller status window climbs
-            // over the recording area — the cost ADR 0016 names.
-            //
-            // The surface's `layout` signal, not `default-height`: the window is
-            // auto-sized, so that property never changes and the first attempt
-            // at this never fired once. Same mechanism the X11 frontend uses to
-            // notice its own geometry settling.
-            match status_win.surface() {
-                Some(surface) => {
-                    let (f3, s3) = (frame.clone(), status_win.clone());
-                    surface.connect_layout(move |_, _, _| {
-                        if let Err(e) = f3.settle_status(&s3) {
-                            eprintln!("glimpse: {e:#}");
-                        }
-                    });
-                }
-                // Saying nothing here would put the sheet back over the
-                // recording area with no way to tell that from the fix never
-                // having been made. A measure that cannot be installed has to
-                // report it rather than shrug, the same way `headless.sh`
-                // refuses when it cannot check the display it is about to use.
-                None => eprintln!(
-                    "glimpse: the status bar has no surface, so it will not re-anchor \
-                     when the sheet appears; expect it to cover the recording area"
+            match window_nswindow(c.window.upcast_ref()) {
+                // Above ordinary windows, or the application being recorded
+                // comes forward and covers the frame. That matters more here
+                // than it did with three windows: while passthrough is on, every
+                // click the user makes goes to the app behind and would raise it.
+                //
+                // The drop shadow is deliberately NOT turned off. It was, when
+                // the chrome was a separate window directly above the capture
+                // region and AppKit drew its shadow downward into every
+                // recording (PR #40). One window casts no shadow into its own
+                // hole — measured over a fixed backdrop, +0.00 on every sampled
+                // row, while the shadow was provably being drawn (-70.08 just
+                // outside the window's edge). So macOS gets its elevation back.
+                Ok(ns) => set_floating(&ns),
+                Err(e) => eprintln!(
+                    "glimpse: the frame has no native window, so it will not float \
+                     above what you are recording: {e:#}"
                 ),
             }
 
-            *held.borrow_mut() = Some((frame, chrome));
+            // The menu bar item, and only recorded as a stop path once the
+            // system has actually placed it. The chrome replaces its Stop button
+            // with whatever `StopPaths` names, so claiming an item that was
+            // never placed would put a label on screen pointing at nothing —
+            // ADR 0012's failure, applied to the one control that can end a
+            // recording.
+            if let Some(mtm) = MainThreadMarker::new() {
+                let weak = Rc::downgrade(&c);
+                let item = Rc::new(MenuBarItem::install(mtm, move || {
+                    // Weak, so the item cannot keep the chrome alive.
+                    if let Some(chrome) = weak.upgrade() {
+                        chrome.stop_from_outside();
+                    }
+                }));
+                if let Some(slot) = held.borrow_mut().as_mut() {
+                    slot.1 = Some(item.clone());
+                }
+                await_placement(item, stop.clone(), 12);
+            }
+
+            // The global hotkey, from the user's own binding. Registration is
+            // allowed to fail — another application may already own the
+            // combination — and on failure nothing is added to `stop`, so the
+            // chrome never shows a key that nothing is listening for.
+            let spec = Config::load().stop_shortcut;
+            match shortcut::parse(&spec) {
+                Some(sc) => {
+                    let weak = Rc::downgrade(&c);
+                    let key = HotKey::register(&sc, move || {
+                        if let Some(chrome) = weak.upgrade() {
+                            chrome.stop_from_outside();
+                        }
+                    });
+                    if let Some(key) = key {
+                        stop.add(key.display.clone());
+                        if let Some(slot) = held.borrow_mut().as_mut() {
+                            slot.2 = Some(key);
+                        }
+                    }
+                }
+                // Refused rather than approximated. A shortcut the user typed
+                // and Glimpse silently reinterpreted would be worse than none:
+                // they would be pressing the wrong keys and blaming the app.
+                None => eprintln!(
+                    "glimpse: stop_shortcut = {spec:?} in config.toml is not a key \
+                     combination Glimpse can register, so there is no stop hotkey. \
+                     It needs at least one modifier, e.g. \"ctrl+opt+s\"."
+                ),
+            }
+
+            // `frame up. capture rect` is a contract, not a log line: the macOS
+            // CI job waits for it and fails the build if the binary comes up
+            // without it. It is also the only thing that distinguishes "the
+            // frontend started" from "the process is alive", which on a runner
+            // with no window server are otherwise identical.
+            match c.capture_rect() {
+                Ok(r) => println!(
+                    "glimpse: frame up. capture rect {}x{} at {},{} \
+                     (device pixels, top-left origin)",
+                    r.w, r.h, r.x, r.y
+                ),
+                Err(e) => eprintln!("glimpse: frame up but the capture rect is unavailable: {e:#}"),
+            }
         });
+
+        // Both stop-path slots start empty and are filled by the timeout above,
+        // each only if it actually installed.
+        *held_c.borrow_mut() = Some((chrome, None, None));
     });
 
-    let code = app.run();
-    if *failed.borrow() {
-        return ExitCode::FAILURE;
-    }
-    ExitCode::from(glib::ExitCode::get(&code))
-}
-
-fn attach_and_report(
-    frame: &Frame,
-    chrome: &Chrome,
-    status_win: &gtk::Window,
-) -> anyhow::Result<()> {
-    frame.attach_to(chrome.window.upcast_ref(), status_win)?;
-
-    let mtm = MainThreadMarker::new().expect("GTK runs on the main thread");
-    let rect = frame.capture_rect(mtm)?;
-    println!(
-        "glimpse: frame up. capture rect {}x{} at {},{} (device pixels, top-left origin)",
-        rect.w, rect.h, rect.x, rect.y
-    );
-
-    // The frame window covers the hole deliberately now (ADR 0015) and is
-    // click-through because it takes no mouse events at all. What must still
-    // hold is that the two descriptions of the recorded region agree: the hole
-    // the caller asked for, and the frame window inset by its border. If those
-    // drift, the user frames one rectangle and records another.
-    // Asked-for versus actually-got, read back from the window server. The
-    // layout is arithmetic; this is what the window manager did with it, and the
-    // two are not the same claim (ADR 0000).
-    if let Ok(actual) = frame.actual_frames(chrome.window.upcast_ref()) {
-        let l = frame.layout();
-        for (name, want, got) in [
-            ("chrome", l.chrome, actual[0]),
-            ("frame", l.frame, actual[1]),
-        ] {
-            // Width and origin only. Height is deliberately GTK's, so comparing
-            // it against the layout's guess would report a disagreement on every
-            // run and train whoever reads this to skip the line.
-            let agree = want.w == got.w && want.x == got.x && want.y == got.y;
-            println!(
-                "glimpse: {name:6} {}x{} at {},{} (layout asked w={} at {},{}) {}",
-                got.w as i64,
-                got.h as i64,
-                got.x as i64,
-                got.y as i64,
-                want.w as i64,
-                want.x as i64,
-                want.y as i64,
-                if agree { "" } else { "<-- PLACED WRONG" },
-            );
-        }
-    }
-
-    let l = frame.layout();
-    if l.hole_from_frame(crate::frame::BORDER) != l.hole {
-        anyhow::bail!(
-            "the recorded region and the drawn frame disagree: hole {:?} vs inset frame {:?}",
-            l.hole,
-            l.hole_from_frame(crate::frame::BORDER)
-        );
-    }
-
-    Ok(())
+    ExitCode::from(glib::ExitCode::get(&app.run()))
 }

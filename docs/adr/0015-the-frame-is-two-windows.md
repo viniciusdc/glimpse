@@ -1,6 +1,10 @@
 # 0015 — The frame is two windows, and one of them takes no clicks
 
-- **Status:** PROPOSED
+- **Status:** PROPOSED. The composition here is **superseded by
+  [ADR 0017](0017-click-through-is-a-mode-not-a-window.md)** — the frame is one
+  window, because the flag measured below turns out to be usable as an
+  application mode rather than only as a property of a decorative window.
+  Everything measured here still holds, and ADR 0017 rests on it.
 - **Date:** 2026-08-28
 - **Supersedes:** the composition in
   [ADR 0011](0011-why-the-macos-frame-is-more-than-one-window.md). Its
