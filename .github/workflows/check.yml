@@ -298,6 +298,35 @@ jobs:
             exit 1
           fi
 
+      # Can this runner capture the screen at all?
+      #
+      # MEASURED, NOT ASSUMED. "A runner has no Screen Recording permission" was
+      # asserted in three places before anyone tried it, and the whole reason
+      # macOS journeys are not run here rests on it. Deciding what CI can hold
+      # from a guess is how a platform ends up with no coverage for a reason
+      # nobody checked.
+      #
+      # Never fatal: this reports, it does not gate. If it says capture works,
+      # the journeys below can be turned on and this comment is wrong.
+      - name: Can this runner capture the screen?
+        run: |
+          set +e
+          ffmpeg -hide_banner -loglevel error -f avfoundation -list_devices true -i "" 2>&1 \
+            | sed 's/^/  devices: /'
+          out=$(ffmpeg -hide_banner -nostdin -f avfoundation -framerate 15 -pix_fmt bgr0 \
+                  -i "2:none" -t 1 -c:v ffv1 -y /tmp/ci-capture.mkv 2>&1)
+          rc=$?
+          echo "  ffmpeg exit: $rc"
+          echo "$out" | tail -15 | sed 's/^/  /'
+          if [ $rc -eq 0 ] && [ -s /tmp/ci-capture.mkv ]; then
+            frames=$(ffprobe -v error -count_frames -select_streams v:0 \
+              -show_entries stream=nb_read_frames -of csv=p=0 /tmp/ci-capture.mkv)
+            echo "CAPTURE-ON-CI: works, $frames frames"
+          else
+            echo "CAPTURE-ON-CI: refused"
+          fi
+          exit 0
+
       # The macOS half of the journeys, or as much of it as a runner can hold.
       #
       # The five user journeys all RECORD, and avfoundation needs Screen

@@ -131,10 +131,14 @@ one:** both backends are selected at compile time, so a trait would buy no
 dispatch. That is ADR 0010's own argument, and it does not weaken as macOS
 matures. Do not read the expired precondition as a gate that has since opened.
 
-macOS now runs the same chrome X11 runs, in one window, and records from it.
-What is still missing is **resize** ([issue #10](https://github.com/viniciusdc/glimpse/issues/10)):
-one window is its precondition and GDK already gives the window the `Resizable`
-style mask, but whether the Quartz backend forwards `begin_resize` is unmeasured.
+macOS now runs the same chrome X11 runs, in one window, records from it, and
+resizes. **Resize arrives differently on the two platforms and that is worth
+knowing before touching either.** X11 needs eight overlay widgets handing off to
+`begin_resize`, because an undecorated GTK window on X11 has no edges of its own
+(ADR 0006). macOS needs nothing: GDK builds a titled `NSWindow` and gives it the
+`Resizable` style mask, so AppKit supplies the edges. Do not port X11's overlay
+edges to macOS to make them "consistent" — that would be adding widgets to
+re-implement something the platform already does.
 
 The window model is decided in
 [ADR 0017](docs/adr/0017-click-through-is-a-mode-not-a-window.md) — one window,

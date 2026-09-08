@@ -95,8 +95,6 @@ Why it works this way, and the six things measured before settling on it, are in
 
 ### What is missing
 
-- **Resize.** The frame cannot be dragged bigger or smaller
-  ([issue #10](https://github.com/viniciusdc/glimpse/issues/10)).
 - **An `.app` bundle**, so releases are source-only on macOS
   ([ADR 0013](adr/0013-macos-ships-an-app-bundle.md)).
 

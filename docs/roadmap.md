@@ -131,12 +131,16 @@ widened rather than overturned, and now also rules out
 `gdk_surface_set_input_region`, which the Quartz backend accepts and ignores.
 What changed is the conclusion drawn from it.
 
-**Resize is the gap** ([issue #10](https://github.com/viniciusdc/glimpse/issues/10)).
-One window is its precondition and GDK already gives the window the `Resizable`
-style mask, so AppKit is willing; whether the Quartz backend forwards a
-GTK-initiated `begin_resize` needs a real pointer drag and is unmeasured.
-`GLIMPSE_PROBE_HOLD=1 cargo run -p glimpse-macos --example single_window_frame`
-puts a grip on screen for a human to drag.
+**Resize works** ([issue #10](https://github.com/viniciusdc/glimpse/issues/10)),
+and needed no code: one window was its precondition, and GDK builds a titled
+`NSWindow` carrying the `Resizable` style mask, so AppKit provides the edges.
+X11 needs eight overlay widgets and `begin_resize` for the same effect because an
+undecorated GTK window there has none.
+
+The half that a drag cannot check — that the recorded region follows the frame —
+is covered by `examples/capture_rect_follows.rs`, which runs on every macOS
+build: growing the window by 90x60 points grows the capture rect by exactly
+180x120 device pixels.
 
 Three things are known to be needed alongside it and are not written:
 

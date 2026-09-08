@@ -56,8 +56,7 @@ OBS.
 
 ## Platforms
 
-**Linux/X11** records, and is the more finished of the two: it is the only one
-you can resize by dragging the frame's edge.
+**Linux/X11** records, and is the older and better-covered of the two.
 
 **macOS** records, through the same chrome. It differs in one visible way: the
 window stops accepting clicks while a recording runs, so you can work in
