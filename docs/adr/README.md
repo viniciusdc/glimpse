@@ -28,4 +28,5 @@ replacing it.
   - [0014](0014-the-chrome-is-shared-the-window-model-is-not.md) — The chrome is shared, the window model is not
   - [0015](0015-the-frame-is-two-windows.md) — The frame is two windows, and one of them takes no clicks
   - [0016](0016-the-chrome-is-above-and-below.md) — The macOS chrome is above *and* below the frame
+  - [0017](0017-click-through-is-a-mode-not-a-window.md) — Click-through is a mode, not a window
 <!-- END GENERATED adr-index -->
