@@ -80,6 +80,29 @@ every macOS window check runs on the screen you are using, with no off-screen
 option to fall back to. That makes the two rules below harder rather than
 optional: the grab really is your desktop, and the machine really is in use.
 
+**Use `scripts/shot-macos.sh`, and never launch-then-capture as two steps.** It
+traps on every exit path so the app is closed even when the capture fails. Doing
+it by hand leaves windows on the screen of whoever owns the machine — which it
+did, repeatedly, before that script existed.
+
+**A GtkMenuButton is a container, not a button.** It wraps an internal
+`GtkButton` that carries the theme's own background, border, radius, shadow and
+metrics, and CSS on the MenuButton never reaches it. The split button's arrow
+rendered as a default-themed white box overflowing the blue half beside it, and
+the hamburger as a cream box larger than the chip — on *both* platforms, plainly
+visible in the Linux CI screenshot for as long as the rule was missing. A
+partial `> button` rule is the worst case: `.glimpse-menu > button` set padding
+and min-height only, which looks like the problem was already solved.
+
+**AppKit answers "yes" to questions about its own intent.** `NSStatusItem.isVisible`
+returns true for an item the system never placed, so it cannot tell you whether
+your menu bar item exists — read the geometry back instead: unplaced, its window
+sits at `(0, -33)`, off the display. And one turn of the run loop is not enough
+to ask: placement took about a second under GTK, and the first diagnosis written
+into an error message — "the menu bar is probably full" — was wrong, disproved
+by `cargo run -p glimpse-macos --example menubar_probe`, which places the
+identical item with no GTK in the process.
+
 **The self-test PNG is a picture of your screen.** `make selftest`
 grabs whatever the framing window was over. Never attach it to a pull request,
 an issue, or a commit. The README has no screenshot for the same reason.
@@ -92,12 +115,11 @@ session — see [`docs/development.md`](docs/development.md#working-off-screen).
 
 ## Scope discipline
 
-Glimpse records GIF and MP4 and snapshots PNG, through ffmpeg. X11 is the only
-frontend that can *record*; macOS has a frame but no controls. Wayland is not a
-missing backend, it is a different interaction model — see
-[ADR 0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md).
+Glimpse records GIF and MP4 and snapshots PNG, through ffmpeg, on **both**
+frontends. Wayland is not a missing backend, it is a different interaction model
+— see [ADR 0002](docs/adr/0002-ffmpeg-pipeline-and-session-model.md).
 
-macOS is a different case and is being worked towards
+macOS is a different case and is now built out
 ([ADR 0010](docs/adr/0010-capture-providers-and-a-platform-free-core.md)). The
 core is split out and platform-free; the seam between core and a backend is
 `GrabCommand`, plain data. `glimpse-macos` records end to end, so the reason this
@@ -109,15 +131,18 @@ one:** both backends are selected at compile time, so a trait would buy no
 dispatch. That is ADR 0010's own argument, and it does not weaken as macOS
 matures. Do not read the expired precondition as a gate that has since opened.
 
-What is still missing on macOS is the *chrome*. The binary no longer refuses: it
-puts up a frame, places it, and reports the rectangle it would capture. It has no
-buttons, so nothing can start a recording.
+macOS now runs the same chrome X11 runs, in one window, and records from it.
+What is still missing is **resize** ([issue #10](https://github.com/viniciusdc/glimpse/issues/10)):
+one window is its precondition and GDK already gives the window the `Resizable`
+style mask, but whether the Quartz backend forwards `begin_resize` is unmeasured.
 
 The window model is decided in
-[ADR 0015](docs/adr/0015-the-frame-is-two-windows.md) — a chrome window and a
-frame window that takes no clicks at all. **Do not build from
-[ADR 0011](docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md):** its
-five-window composition is superseded. Its *measurements* are not, and they are
+[ADR 0017](docs/adr/0017-click-through-is-a-mode-not-a-window.md) — one window,
+which stops taking clicks for as long as the user needs to reach what is behind
+it. **Do not build from
+[ADR 0011](docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md) or
+[ADR 0015](docs/adr/0015-the-frame-is-two-windows.md):** their multi-window
+compositions are superseded. Their *measurements* are not, and they are
 still the reference for what GTK does and does not inherit on macOS.
 
 **Do not offer a setting the backend cannot honour.** avfoundation ignores

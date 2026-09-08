@@ -1,6 +1,10 @@
 # 0016 — The macOS chrome is above *and* below the frame
 
-- **Status:** PROPOSED
+- **Status:** PROPOSED. **Superseded by
+  [ADR 0017](0017-click-through-is-a-mode-not-a-window.md)**, which puts the
+  chrome back in one window. The layout this record argued for — status bar and
+  sheet BELOW the capture region, where X11 has them — is what ADR 0017 ships;
+  only the three windows it needed are gone.
 - **Date:** 2026-08-31
 - **Extends:** [ADR 0015](0015-the-frame-is-two-windows.md). Its two windows
   become three; nothing it measured changes.

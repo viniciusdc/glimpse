@@ -118,24 +118,38 @@ Glimpse's own naming and only dead process ids
 
 ## Next
 
-**macOS.** Not a candidate any more — it is the work in progress. `glimpse-core`
-and `glimpse-macos` build and are tested there, and macOS records end to end
-through the backend's example. What is missing is a *frontend*: there is no
-window, so the binary refuses with an explanation.
+**macOS.** No longer next — it runs the same chrome X11 runs, in one window, and
+records from it. The window model is
+[ADR 0017](adr/0017-click-through-is-a-mode-not-a-window.md): the window stops
+taking clicks for as long as the user needs to reach what is behind it, and a
+menu bar item or a configurable hotkey ends the recording, because the Stop
+button is unreachable by construction while that mode is on.
 
-The window model is decided in
-[ADR 0011](adr/0011-why-the-macos-frame-is-more-than-one-window.md) — a header
-window over four border strips, because GTK on macOS cannot make a covered region
-click-through even though AppKit can. `addChildWindow:` moves them as one; resize
-does not propagate and has a `setFrame:` trap recorded. Whether a hand-written
-four-strip resize shears visibly needs a frame that exists, and is the one
-question a spike cannot answer.
+GTK on macOS still cannot make a covered region click-through — that measurement
+from [ADR 0011](adr/0011-why-the-macos-frame-is-more-than-one-window.md) was
+widened rather than overturned, and now also rules out
+`gdk_surface_set_input_region`, which the Quartz backend accepts and ignores.
+What changed is the conclusion drawn from it.
 
-Two things are known to be needed alongside it and are not written:
+**Resize is the gap** ([issue #10](https://github.com/viniciusdc/glimpse/issues/10)).
+One window is its precondition and GDK already gives the window the `Resizable`
+style mask, so AppKit is willing; whether the Quartz backend forwards a
+GTK-initiated `begin_resize` needs a real pointer drag and is unmeasured.
+`GLIMPSE_PROBE_HOLD=1 cargo run -p glimpse-macos --example single_window_frame`
+puts a grip on screen for a human to drag.
+
+Three things are known to be needed alongside it and are not written:
 
 - **`die_with_parent` is a no-op off Linux**, so `SIGKILL` orphans a recording
   ffmpeg on macOS. Harmless while macOS could not record; reachable now that it
-  can. `kqueue`'s `NOTE_EXIT` is the analogue of `PR_SET_PDEATHSIG`.
+  can, and now reachable from the UI rather than only from an example.
+  `kqueue`'s `NOTE_EXIT` is the analogue of `PR_SET_PDEATHSIG`.
+- **Nothing drives the macOS UI.** `make selftest`, `smoke.sh` and `headless.sh`
+  are X11-only, and there is no Xvfb on macOS. The macOS CI job checks that the
+  binary comes up, places its window and reports a capture rect, and stops
+  there: a runner has no Screen Recording permission, so pressing Record would
+  fail for a reason that is not a product bug. The five journeys are verified on
+  X11 and on nothing else.
 - **Packaging is decided and unbuilt.** macOS ships an `.app` bundle
   ([ADR 0013](adr/0013-macos-ships-an-app-bundle.md)) — Screen Recording
   permission attaches to a bundle identifier that a bare binary cannot hold, and

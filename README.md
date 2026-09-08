@@ -56,12 +56,13 @@ OBS.
 
 ## Platforms
 
-**Linux/X11** records. That is the whole product today.
+**Linux/X11** records, and is the more finished of the two: it is the only one
+you can resize by dragging the frame's edge.
 
-**macOS** builds and puts the frame on screen, and reports the region it would
-record, but it has no controls — so it cannot record. The capture backend
-underneath does work. [`docs/install.md`](docs/install.md#macos-in-progress) has
-what runs today.
+**macOS** records, through the same chrome. It differs in one visible way: the
+window stops accepting clicks while a recording runs, so you can work in
+whatever is being recorded, and a menu bar item or a configurable shortcut stops
+it. [`docs/install.md`](docs/install.md#macos-in-progress) has what runs today.
 
 **Wayland** is out by design, and [the FAQ](docs/faq.md#why-no-wayland-support)
 explains why it would be a different application rather than a missing feature.

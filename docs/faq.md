@@ -108,13 +108,14 @@ false: macOS hit-tests a non-opaque window per pixel against its alpha, so a
 window with a transparent middle genuinely is click-through, and LICEcap has
 shipped exactly that since 2011. The correction is recorded in
 [ADR 0011](adr/0011-why-the-macos-frame-is-more-than-one-window.md), and the
-window model it settled on in
-[ADR 0015](adr/0015-the-frame-is-two-windows.md).
+window model it settled on — after two further corrections — in
+[ADR 0017](adr/0017-click-through-is-a-mode-not-a-window.md).
 
-What exists today is a frame that places itself and reports the region it would
-capture, over a working avfoundation backend. It has no controls, so it cannot
-record from the UI, and there is no release artifact or `.app` bundle. The README
-covers how to run it.
+macOS records today, through the same chrome Linux runs. The one visible
+difference is that its window stops accepting clicks while recording, so the
+Stop button moves to the menu bar and a shortcut; the reasoning is in ADR 0017.
+What is still missing is resize and an `.app` bundle, so there is no release
+artifact and it is built from source.
 
 Windows is untouched. Nobody has measured anything there, so read its absence as
 unexamined rather than settled — which is precisely the mistake this answer made
