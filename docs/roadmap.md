@@ -148,12 +148,13 @@ Three things are known to be needed alongside it and are not written:
   ffmpeg on macOS. Harmless while macOS could not record; reachable now that it
   can, and now reachable from the UI rather than only from an example.
   `kqueue`'s `NOTE_EXIT` is the analogue of `PR_SET_PDEATHSIG`.
-- **Nothing drives the macOS UI.** `make selftest`, `smoke.sh` and `headless.sh`
-  are X11-only, and there is no Xvfb on macOS. The macOS CI job checks that the
-  binary comes up, places its window and reports a capture rect, and stops
-  there: a runner has no Screen Recording permission, so pressing Record would
-  fail for a reason that is not a product bug. The five journeys are verified on
-  X11 and on nothing else.
+- **CI cannot drive the macOS UI past geometry.** `make selftest`, `smoke.sh`
+  and `headless.sh` are X11-only, and there is no Xvfb on macOS. The runner also
+  cannot capture at all — measured on every build, ffmpeg exits 251 opening the
+  avfoundation input and the device list is empty — so the five journeys cannot
+  run there. They run locally through `make journeys-macos`, where all five
+  pass, and CI holds the parts that need no capture: the binary comes up, places
+  its window, and its capture rect follows the window when moved and resized.
 - **Packaging is decided and unbuilt.** macOS ships an `.app` bundle
   ([ADR 0013](adr/0013-macos-ships-an-app-bundle.md)) — Screen Recording
   permission attaches to a bundle identifier that a bare binary cannot hold, and
