@@ -298,6 +298,23 @@ jobs:
             exit 1
           fi
 
+      # The macOS half of the journeys, or as much of it as a runner can hold.
+      #
+      # The five user journeys all RECORD, and avfoundation needs Screen
+      # Recording permission — granted by a human at a system dialog, which a
+      # runner has nobody to answer. They run locally through
+      # `scripts/journeys-macos.sh` instead.
+      #
+      # This one does not record. It builds the real chrome, asks it what it
+      # would capture, moves the window, and asks again — the regression guard
+      # for ADR 0017's central claim, that the rectangle is derived on every call
+      # rather than remembered. The three-window design answered from a cached
+      # layout and reported the rectangle the frame STARTED at after any drag,
+      # with `geometry_drifted` unable to see it because both sides read the same
+      # stale value. Geometry only, no permission needed, so CI can hold it.
+      - name: The capture rect follows the window
+        run: cargo run --locked -p glimpse-macos --example capture_rect_follows
+
   # The integration half. Everything else in this workflow runs `cargo`, which
   # never launches the application: `smoke.sh` and `selftest.sh` existed for a
   # long time and no job called them, so the journeys they drive were verified
@@ -354,6 +371,10 @@ jobs:
           command -v ffmpeg   >/dev/null || need+=(ffmpeg)
           command -v Xvfb     >/dev/null || need+=(xvfb)
           command -v xdpyinfo >/dev/null || need+=(x11-utils)
+          # Synthesises the clicks for scripts/clickthrough.sh. Under Xvfb this
+          # needs no permission of any kind, which is why the automated half of
+          # the click-through check is the Linux one.
+          command -v xdotool  >/dev/null || need+=(xdotool)
           if [ ${#need[@]} -eq 0 ]; then
             echo "nothing to install"
           else
@@ -385,6 +406,14 @@ jobs:
       #
       # Record to GIF, record to MP4, snapshot, cancel mid-encode, and retry a
       # preserved capture. Each drives the same buttons a user presses.
+      # The only check that tests the CONSEQUENCE of the input region rather
+      # than the region itself. `selftest.sh` reads the shape back from the X
+      # server and checks its semantics, which catches a hole in the wrong
+      # place; it cannot see whether the shape turns into an event actually
+      # delivered to the window behind, which is the entire product promise.
+      - name: A click through the hole reaches the window behind
+        run: make clickthrough
+
       - name: Every user journey, off-screen
         run: make journeys
 
