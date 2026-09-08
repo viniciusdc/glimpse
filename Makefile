@@ -108,6 +108,22 @@ journeys: smoke ## Every user journey off-screen, including the durability paths
 	@scripts/smoke.sh cancel-encode $(NICE) $(CARGO) run $(JOBS)
 	@scripts/smoke.sh retry $(NICE) $(CARGO) run $(JOBS)
 
+.PHONY: clickthrough
+# The one check that tests the CONSEQUENCE of the input region rather than the
+# region itself: a click aimed at the hole has to arrive at the window behind.
+# Linux only, and not for want of trying — synthesising a click on macOS needs
+# Accessibility permission, which a runner never has. See scripts/clickthrough.sh.
+clickthrough: ## Click through the hole and check it lands (X11, off-screen)
+	@scripts/headless.sh scripts/clickthrough.sh
+
+.PHONY: journeys-macos
+# The same journeys `make journeys` runs, on the frontend that cannot run them
+# off-screen. There is no Xvfb on macOS, so this uses YOUR screen — and it
+# cannot run in CI at all, because a runner has no Screen Recording permission
+# and avfoundation would fail for a reason that is not a product bug.
+journeys-macos: ## Every user journey on macOS, on your real screen
+	@scripts/journeys-macos.sh
+
 .PHONY: check-journeys
 check-journeys: ## Fail if a journey exists that nothing drives
 	@scripts/check-journeys.sh

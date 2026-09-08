@@ -59,11 +59,15 @@ crates/glimpse-x11/     The X11 frontend: GTK4 window, punched input region
   examples/root_geometry.rs    Query X with no GTK window involved
   examples/framing_window.rs   The smallest useful framing window
   examples/record.rs           Record a fixed region, no GTK window involved
+  examples/click_board.rs      A board that says where it was clicked
 data/
   glimpse.desktop       Desktop entry, installed by `make install`
 scripts/
   headless.sh           Runs Glimpse on a private X server, off your screen
-  smoke.sh              Drives one user journey and turns it into an exit status
+  smoke.sh              Drives one user journey off-screen, X11
+  journeys-macos.sh     The same journeys on macOS, where off-screen does not exist
+  journey-verdict.sh    Did a journey pass? One definition, shared by both runners
+  clickthrough.sh       A click aimed at the hole must reach the window behind
   selftest.sh           Geometry and input region, with a status the suite can read
   check-journeys.sh     Fails if a journey exists that nothing drives
   check-links-external.sh  External links in the docs; only a 404 fails

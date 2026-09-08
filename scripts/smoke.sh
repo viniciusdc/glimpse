@@ -63,64 +63,8 @@ if (( status == RUNNER_REFUSED )); then
 fi
 (( status == 0 )) || fail "the app exited $status"
 
-grep -q '\[smoke\]' "$log" || fail "the smoke harness never ran"
-
-# Per-journey assertions. `Recording` then `Completed` is the record path and
-# means nothing for the others: a snapshot never enters the session machine at
-# all, and cancel-encode is a success precisely when it does NOT complete.
-# Asserting the record shape everywhere would have made three journeys either
-# permanently red or trivially green.
-want() {
-  grep -q "$1" "$log" || fail "$2" "$(grep '\[smoke\]' "$log" || true)"
-}
-
-case "$mode" in
-  record|record-mp4)
-    # Arming is the half a wrong button silently skips.
-    want '\[smoke\] state: Recording'        "Record did not arm a recording"
-    # And finishing is the half a broken encode silently skips.
-    want '\[smoke\] final state: Completed'  "the recording did not complete"
-    echo
-    echo "smoke ($mode): armed a real recording and completed it."
-    ;;
-
-  snapshot)
-    # A snapshot is deliberately not a session (ADR 0009), so there is no state
-    # to assert. What matters is that it committed a file: `saved <path>` is the
-    # success text and anything else in that slot is the error.
-    want '\[smoke\] pressing Snapshot'       "the Snapshot button was never pressed"
-    want '\[smoke\] status: saved '          "the snapshot did not commit a file"
-    echo
-    echo "smoke ($mode): pressed Snapshot and committed a file."
-    ;;
-
-  cancel-encode)
-    # ADR 0002's durability guarantee: cancelling mid-encode must reach
-    # Cancelled and must not leave an ffmpeg behind. Checking the state alone
-    # would pass while a child kept running into a deleted directory.
-    want '\[smoke\] state before cancel: Encoding' \
-         "the cancel did not land during an encode, so nothing was tested"
-    want '\[smoke\] state after cancel:  Cancelled' \
-         "cancelling mid-encode did not reach Cancelled"
-    if [[ "$(grep -c '\[smoke\] ffmpeg alive: 0' "$log")" -lt 1 ]]; then
-      fail "an ffmpeg survived the cancel" "$(grep 'ffmpeg alive' "$log" || true)"
-    fi
-    echo
-    echo "smoke ($mode): cancelled mid-encode, reached Cancelled, reaped the child."
-    ;;
-
-  retry)
-    # The other half of ADR 0002: a preserved capture is re-encodable without
-    # recording again. `retry visible: true` is the UI half, `after retry:
-    # Completed` is the one that proves it actually re-encoded.
-    want '\[smoke\] retry visible: true'     "no retry was offered for a preserved capture"
-    want '\[smoke\] after retry: Completed'  "the retry did not produce a finished encode"
-    echo
-    echo "smoke ($mode): re-encoded a preserved capture without recording again."
-    ;;
-
-  *)
-    fail "unknown journey '$mode'" \
-         "add its assertions here rather than letting it pass unchecked"
-    ;;
-esac
+# The verdicts live in one place, shared with `journeys-macos.sh`. They used to
+# live here, and the macOS runner grew a second, weaker copy that reported a
+# working journey as a failure — see scripts/journey-verdict.sh.
+scripts/journey-verdict.sh "$mode" "$log" || exit 1
+echo
