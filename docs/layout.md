@@ -62,6 +62,7 @@ scripts/
   check-journeys.sh     Fails if a journey exists that nothing drives
   check-links-external.sh  External links in the docs; only a 404 fails
   screenshot.sh         Photographs the UI off-screen, because nothing else looks at it
+  shot-macos.sh         The same on macOS, where off-screen does not exist; always closes the app
   install.sh            Installs a release, refusing anything that fails its checksum
   make-demo.py          Draws the README animation, frame by frame
   sync-docs.sh          Regenerates the ADR index; fails the build on doc drift

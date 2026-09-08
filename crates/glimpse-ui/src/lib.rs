@@ -247,6 +247,14 @@ window.glimpse-below .glimpse-shell {{ background: {status_bg}; }}
 
 /* Read-only. It reports the active format rather than competing with the split
    button for the same click. */
+/* The chip and the menu sit next to each other, so they share a box: the same
+   height and the same corner radius. They differ in border on purpose — the
+   chip is read-only and says so with an outline, the menu is a control and
+   reveals itself on hover — but a 20px outline beside a 26px button read as a
+   mistake rather than as a distinction.
+   Height comes from `min-height` rather than vertical padding, because padding
+   on a label and padding on a button's inner node do not produce the same box
+   and that is what let them drift apart. */
 .glimpse-chip {{
   color: {meta};
   font-size: 10.5px;
@@ -254,19 +262,43 @@ window.glimpse-below .glimpse-shell {{ background: {status_bg}; }}
   letter-spacing: 0.6px;
   border: 1px solid {chip_line};
   border-radius: 5px;
-  padding: 2px 7px;
+  min-height: 22px;
+  padding: 0 7px;
 }}
 .glimpse-menu {{
   color: {meta};
   background: none;
   border: 0;
   box-shadow: none;
-  min-height: 24px;
-  min-width: 24px;
+  min-height: 22px;
+  min-width: 22px;
   padding: 0;
 }}
 .glimpse-menu:hover {{ background: {hover}; border-radius: 5px; }}
-.glimpse-menu > button {{ padding: 0 4px; min-height: 24px; }}
+/* Same container-versus-inner-node trap as `.glimpse-action-arrow` above: a
+   GtkMenuButton wraps a GtkButton, and the rules on `.glimpse-menu` never
+   reached it. This one HAD a `> button` rule, but it only set padding and
+   min-height — so the theme's background, border, radius and drop shadow were
+   still painting, which is why the hamburger rendered as a cream box larger
+   than the chip beside it. Setting a couple of properties on the inner node is
+   not the same as styling it. */
+.glimpse-menu > button {{
+  background: transparent;
+  color: {meta};
+  border: 0;
+  border-radius: 5px;
+  box-shadow: none;
+  min-height: 22px;
+  min-width: 22px;
+  padding: 0 4px;
+  margin: 0;
+}}
+.glimpse-menu > button:hover,
+.glimpse-menu > button:active,
+.glimpse-menu > button:checked {{
+  background: transparent;
+  box-shadow: none;
+}}
 
 /* The capture region. The border lives on this widget, and the capture target
    inside it paints nothing — see ADR 0000. Never move this border onto
