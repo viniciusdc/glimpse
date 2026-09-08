@@ -61,6 +61,10 @@ pub fn build(app: &gtk::Application, stop: StopPaths) -> Rc<Chrome> {
                 // is decided by the session, not by the layout.
                 geometry_settled: Box::new(|| {}),
 
+                // The whole point of ADR 0017: the window stops taking clicks
+                // rather than the hole being carved out of it.
+                offers_passthrough: true,
+
                 set_passthrough: Box::new(move |on| {
                     match window_nswindow(pw.upcast_ref()) {
                         Ok(ns) => set_passthrough(&ns, on),
@@ -78,7 +82,7 @@ pub fn build(app: &gtk::Application, stop: StopPaths) -> Rc<Chrome> {
                 // Read on every refresh rather than captured once, so a stop
                 // path registered after the window came up is picked up — and
                 // so one that failed to register is never claimed.
-                stop_hint: Box::new(move || stop.hint().map(|h| format!("Stop: {h}"))),
+                stop_hint: Box::new(move || stop.hint()),
 
                 diagnostics: Box::new(move || diagnostics(&dw, &dh)),
 

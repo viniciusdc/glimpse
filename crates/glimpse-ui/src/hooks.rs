@@ -95,15 +95,32 @@ pub struct PlatformHooks {
     /// the window server, and the flag it sets is asynchronous.
     pub set_passthrough: SetPassthroughFn,
 
-    /// What to show where the action button goes, while passthrough is on.
+    /// Whether this platform has a passthrough mode at all.
     ///
-    /// `None` means the button still works and should be shown — X11's answer,
-    /// always, because its chrome keeps taking clicks while it records.
+    /// A plain fact, like [`Self::honours_pointer_capture`], and offered for the
+    /// same reason: the chrome shows a "Pass clicks through" switch only where
+    /// it means something. X11 punches its hole out of the input region, so its
+    /// clicks already pass and there is nothing to toggle; a switch there would
+    /// flip, persist and change nothing, which
+    /// [ADR 0012](../../../docs/adr/0012-a-setting-a-backend-cannot-honour.md)
+    /// calls the same failure as a file that lies about its contents.
+    pub offers_passthrough: bool,
+
+    /// The ways to reach Glimpse while its window takes no clicks, phrased for a
+    /// user — `"⌃⌥S or the menu bar"`.
     ///
-    /// `Some(hint)` means the button is unreachable and this is what stops the
-    /// recording instead. Showing the button anyway would be
-    /// [ADR 0012](../../../docs/adr/0012-a-setting-a-backend-cannot-honour.md)'s
-    /// failure exactly: a control that is visible, looks live, and does nothing.
+    /// **Paths only, no sentence.** The chrome wraps them, because what the
+    /// sentence should say depends on why the window is unreachable: stopping a
+    /// recording and getting an idle window back are different requests, and the
+    /// platform does not know which one is in progress.
+    ///
+    /// `None` means nothing outside the window can reach it. X11 answers `None`
+    /// always, because its chrome keeps taking clicks and never needs rescuing.
+    /// On macOS it is `None` until something actually installs, so a path is
+    /// never claimed before it exists.
+    ///
+    /// It also gates the passthrough switch: turning the window click-through
+    /// with no way back would lock the user out of their own application.
     ///
     /// **A closure rather than a string, because the answer is not fixed.** The
     /// shortcut is configurable, so a literal would disagree with the binding as
@@ -154,6 +171,7 @@ impl PlatformHooks {
             capture_rect: Box::new(|| anyhow::bail!("no platform: capture_rect is unavailable")),
             grab: Box::new(|_| anyhow::bail!("no platform: grab is unavailable")),
             geometry_settled: Box::new(|| {}),
+            offers_passthrough: false,
             set_passthrough: Box::new(|_| {}),
             // Not `Some("...")`: a stub that named a stop path would put a
             // shortcut in front of a user that nothing is listening for.

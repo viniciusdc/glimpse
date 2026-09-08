@@ -88,6 +88,10 @@ pub struct Chrome {
     /// behind it. Memoised so the platform hook fires on transitions rather than
     /// on every tick of the 100ms driver.
     passthrough: Cell<bool>,
+    /// Passthrough the user asked for, as opposed to the kind a recording
+    /// forces. Not persisted: it is a mode you are in, not a preference, and a
+    /// Glimpse that started up ignoring clicks would look broken.
+    user_passthrough: Cell<bool>,
     /// The lifecycle. Every transition goes through `glimpse_core::session::transition`,
     /// so the policies stay in the tested pure module rather than in callbacks.
     state: RefCell<State>,
@@ -413,6 +417,7 @@ impl Chrome {
             hooks,
             frozen: Cell::new(None),
             passthrough: Cell::new(false),
+            user_passthrough: Cell::new(false),
             state: RefCell::new(State::Idle),
             worker: RefCell::new(None),
             encoder: RefCell::new(None),
@@ -644,11 +649,21 @@ impl Chrome {
     /// caller gets to invent a transition. Returning `false` also lets the
     /// caller keep quiet rather than reporting a stop that did not happen.
     pub fn stop_from_outside(self: &Rc<Self>) -> bool {
-        if !matches!(&*self.state.borrow(), State::Recording { .. }) {
-            return false;
+        if matches!(&*self.state.borrow(), State::Recording { .. }) {
+            self.dispatch(Event::Stop);
+            return true;
         }
-        self.dispatch(Event::Stop);
-        true
+        // Not recording, but the user turned click-through on by hand and the
+        // chrome cannot be clicked to turn it off again. The same key and the
+        // same menu item mean "give me the window back" — one gesture, because
+        // a second binding for the second half of one idea is a thing to
+        // remember for no reason.
+        if self.user_passthrough.get() {
+            self.user_passthrough.set(false);
+            self.refresh();
+            return true;
+        }
+        false
     }
 
     /// What a recording would capture right now, without freezing anything.
@@ -1520,7 +1535,8 @@ impl Chrome {
         // The frame must stop taking clicks for as long as a recording is
         // running, so the user can work in whatever is behind it. X11 does
         // nothing here; macOS turns the whole window click-through (ADR 0017).
-        let passthrough = matches!(state, State::Recording { .. } | State::Stopping { .. });
+        let recording = matches!(state, State::Recording { .. } | State::Stopping { .. });
+        let passthrough = recording || self.user_passthrough.get();
         self.sync_passthrough(passthrough);
 
         // `None` means the action button can still be clicked — X11's answer,
@@ -1528,7 +1544,21 @@ impl Chrome {
         // instead. The button is replaced rather than greyed out: a disabled
         // Stop button would still be claiming a recording can be stopped from
         // here, which is ADR 0012's failure with extra steps.
-        match passthrough.then(|| (self.hooks.stop_hint)()).flatten() {
+        // The hook returns the paths; the sentence is the chrome's, because what
+        // needs saying depends on why the window is unreachable. "Stop" is wrong
+        // when nothing is recording, and "click-through is on" is not the thing
+        // a person wants to read while a recording is running.
+        let hint = passthrough
+            .then(|| (self.hooks.stop_hint)())
+            .flatten()
+            .map(|paths| {
+                if recording {
+                    format!("Stop: {paths}")
+                } else {
+                    format!("Click-through on · {paths}")
+                }
+            });
+        match hint {
             Some(hint) => {
                 self.record_label.set_text(&hint);
                 self.record.set_sensitive(false);
@@ -1790,6 +1820,53 @@ impl Chrome {
                 });
             }
             root.append(&row("Capture pointer", pointer.upcast_ref()));
+        }
+
+        // Click-through on demand, so the frame can be positioned over a live
+        // application without blocking it. Only where the platform has such a
+        // mode: on X11 the hole passes clicks at all times, so a switch would
+        // flip and change nothing (ADR 0012, and the same reasoning as the
+        // pointer switch above).
+        if self.hooks.offers_passthrough {
+            let through = gtk::Switch::new();
+            through.set_valign(gtk::Align::Center);
+            through.set_active(self.user_passthrough.get());
+
+            // THE GUARD. Turning this on makes the whole window stop taking
+            // clicks — including this switch. With no menu bar item and no
+            // registered hotkey there is no way back, and the user would have
+            // locked themselves out of their own application by flipping a
+            // switch that looked ordinary. Insensitive rather than hidden,
+            // because unlike the pointer switch this one is not permanently
+            // unavailable: install a stop path and it works.
+            let reachable = (self.hooks.stop_hint)().is_some();
+            through.set_sensitive(reachable);
+            let row_widget = row("Pass clicks through", through.upcast_ref());
+            row_widget.set_tooltip_text(Some(&match (self.hooks.stop_hint)() {
+                Some(paths) => {
+                    format!("Clicks reach what is behind the frame. {paths} turns it off.")
+                }
+                None => "Unavailable: nothing could turn it back off, and the window \
+                         would stop accepting clicks — including this switch."
+                    .to_string(),
+            }));
+
+            {
+                let me = self.clone();
+                let pop = popover.clone();
+                through.connect_state_set(move |_, on| {
+                    me.user_passthrough.set(on);
+                    // The popover is part of the window and would be as
+                    // unclickable as everything else; leaving it open over a
+                    // window that ignores clicks reads as a freeze.
+                    if on {
+                        pop.popdown();
+                    }
+                    me.refresh();
+                    glib::Propagation::Proceed
+                });
+            }
+            root.append(&row_widget);
         }
 
         let show_rect = gtk::Button::with_label("Show");
