@@ -73,17 +73,28 @@ fn main() {
             .default_height(h)
             .build();
         window.set_child(Some(&area));
-        window.present();
 
-        // Announced after mapping, so the driver waits for the board to exist
-        // rather than sleeping and hoping. A board that is not up yet takes no
-        // clicks, and "the click did not land" would read as a finding.
+        // BEFORE `present`, not after. Connected afterwards the map has already
+        // happened, the handler never runs, and the driver waits ten seconds for
+        // a line that will never come — which is what it did on its first CI
+        // run.
+        //
+        // Announced rather than timed, so the driver waits for the board to
+        // exist instead of sleeping and hoping. A board that is not up yet takes
+        // no clicks, and "the click did not land" would read as a finding.
         window.connect_map(|_| {
             println!("BOARD-READY");
             use std::io::Write;
             let _ = std::io::stdout().flush();
         });
+
+        window.present();
     });
 
-    app.run();
+    // **No argv.** A GApplication given positional arguments treats them as
+    // files to open, and one without `HANDLES_OPEN` answers "This application
+    // can not open files" and never emits `activate` at all. The board then
+    // never mapped and the driver reported that as the finding. The size is read
+    // from `std::env::args` above, before GTK sees anything.
+    app.run_with_args::<&str>(&[]);
 }
