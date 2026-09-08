@@ -166,21 +166,80 @@ pub fn set_floating(window: &NSWindow) {
     window.setLevel(FLOATING);
 }
 
-/// Make a window take no clicks anywhere.
+/// How translucent the window goes while it is passing clicks through.
+///
+/// A window that silently stopped accepting clicks reads as a frozen
+/// application. The dim is what makes "not interactive" visible.
+///
+/// Measured not to reach the hole: dimming moved a header band by −10.97 against
+/// a fixed backdrop while the hole stayed at exactly the backdrop's value
+/// ([ADR 0017](../../docs/adr/0017-click-through-is-a-mode-not-a-window.md)). The
+/// arithmetic said as much — the hole is already at alpha 0 — but PR #40 is why
+/// compositing arguments get measured here rather than reasoned about.
+const PASSTHROUGH_ALPHA: f64 = 0.8;
+
+/// Turn whole-window click-through on or off.
 ///
 /// `ignoresMouseEvents` is whole-window, which is why issue #1 and
 /// [ADR 0011](../../docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md)
-/// both dismissed it: it cannot describe a hole. That was the wrong conclusion.
-/// A window meant to be purely decorative wants exactly whole-window
-/// click-through, and setting it is what lets the frame cover the hole at all
-/// (ADR 0015).
+/// both dismissed it: it cannot describe a hole. That was the wrong conclusion
+/// twice over. [ADR 0015](../../docs/adr/0015-the-frame-is-two-windows.md) found
+/// that a purely decorative window wants exactly whole-window click-through, and
+/// [ADR 0017](../../docs/adr/0017-click-through-is-a-mode-not-a-window.md) found
+/// that so does an *application*, for as long as the user is working in whatever
+/// sits behind the frame.
 ///
 /// **It does not take effect within the turn it is set.** The window server
 /// processes it asynchronously, so anything reading window state back must pump
 /// the run loop first. Measuring without that pump once produced a confident
 /// "the flag does nothing".
-pub fn ignore_mouse_events(window: &NSWindow) {
-    window.setIgnoresMouseEvents(true);
+///
+/// That asynchrony is survivable here only because this is called on a state
+/// transition and not on every pointer crossing — once, at a moment when there
+/// is no click in flight to lose.
+pub fn set_passthrough(window: &NSWindow, on: bool) {
+    window.setIgnoresMouseEvents(on);
+    window.setAlphaValue(if on { PASSTHROUGH_ALPHA } else { 1.0 });
+}
+
+/// What a recording would capture: where the hole widget is, on screen, now.
+///
+/// **Computed from the widget on every call, never cached.** The three-window
+/// design answered this from a `Layout` built once at startup, so after the
+/// frame was dragged it reported — and recorded — the rectangle the frame
+/// started at, and `geometry_drifted` could not see the error because both sides
+/// read the same stale value. Deriving it from `compute_bounds` gives the
+/// staleness nowhere to live, and is what X11 has always done.
+///
+/// The hole's bounds are its *border box*, and the frame is painted by the
+/// parent, so no inset is applied here. Adding one would reintroduce a fixed bug
+/// (AGENTS.md, [ADR 0000](../../docs/adr/0000-x11-framing-window-spike.md)).
+pub fn capture_rect_of(
+    window: &gtk::Window,
+    hole: &gtk::Box,
+    mtm: MainThreadMarker,
+) -> Result<ScreenPixelRect> {
+    let b = hole
+        .compute_bounds(window)
+        .ok_or_else(|| anyhow!("the hole has no bounds yet — not laid out"))?;
+    // Widget coordinates are relative to the window widget; the NSWindow frame
+    // describes the surface. The two differ by the client-side-decoration
+    // margin, and applying the transform to only one of them is how a punched
+    // hole drifts from a visible one.
+    let (tx, ty) = window.surface_transform();
+    let ns = window_nswindow(window)?;
+    let f = appkit_frame(&ns);
+    capture_rect(
+        AppKitRect {
+            x: f.x + b.x() as f64 + tx,
+            // Widget y counts down from the window's top; AppKit counts up from
+            // the screen's bottom. One flip, here.
+            y: f.y + f.h - (b.y() as f64 + ty) - b.height() as f64,
+            w: b.width() as f64,
+            h: b.height() as f64,
+        },
+        mtm,
+    )
 }
 
 /// The AppKit frame of a window, as the flip expects it.

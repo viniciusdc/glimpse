@@ -9,20 +9,21 @@
 //!   silently wrong on a machine nobody is looking at.
 //! * [`window`] needs AppKit and GTK, and exists only on macOS.
 //!
-//! The frame is several windows rather than one, because GTK cannot make a
-//! covered region click-through — see
-//! [ADR 0011](../docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md).
+//! The frame is **one** window, and it stops taking clicks for as long as the
+//! user needs to reach what is behind it
+//! ([ADR 0017](../docs/adr/0017-click-through-is-a-mode-not-a-window.md)). GTK
+//! still cannot make a covered region click-through on macOS — that measurement
+//! from [ADR 0011](../docs/adr/0011-why-the-macos-frame-is-more-than-one-window.md)
+//! stands, and was widened rather than overturned — but a hole only has to pass
+//! clicks while somebody is clicking through it.
 
 pub mod geometry;
 pub mod grab;
-pub mod layout;
 
 #[cfg(target_os = "macos")]
 pub mod app;
 #[cfg(target_os = "macos")]
-pub mod frame;
-#[cfg(target_os = "macos")]
-pub mod hooks;
+pub mod ui;
 #[cfg(target_os = "macos")]
 pub mod window;
 

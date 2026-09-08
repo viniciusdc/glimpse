@@ -84,6 +84,10 @@ pub struct Chrome {
     /// The rect snapshotted when locking, per ADR 0002. `Some` means a session
     /// owns the geometry.
     frozen: Cell<Option<ScreenPixelRect>>,
+    /// Whether the window is currently passing clicks through to whatever is
+    /// behind it. Memoised so the platform hook fires on transitions rather than
+    /// on every tick of the 100ms driver.
+    passthrough: Cell<bool>,
     /// The lifecycle. Every transition goes through `glimpse_core::session::transition`,
     /// so the policies stay in the tested pure module rather than in callbacks.
     state: RefCell<State>,
@@ -404,6 +408,7 @@ impl Chrome {
             window: window.clone(),
             hooks,
             frozen: Cell::new(None),
+            passthrough: Cell::new(false),
             state: RefCell::new(State::Idle),
             worker: RefCell::new(None),
             encoder: RefCell::new(None),
@@ -619,6 +624,15 @@ impl Chrome {
 
     pub fn frozen_rect(&self) -> Option<ScreenPixelRect> {
         self.frozen.get()
+    }
+
+    /// What a recording would capture right now, without freezing anything.
+    ///
+    /// `lock()` also answers this and is the wrong thing to call for a report:
+    /// it hands the geometry to a session. A frontend that wants to say what it
+    /// would record — at startup, or in CI — needs to ask without claiming.
+    pub fn capture_rect(&self) -> Result<ScreenPixelRect> {
+        (self.hooks.capture_rect)()
     }
 
     /// Has the frame moved since it was locked?
@@ -1379,6 +1393,27 @@ impl Chrome {
         );
     }
 
+    /// Let the user reach what is behind the frame while a recording runs, and
+    /// take that back when it stops.
+    ///
+    /// **Only on a change.** `refresh` runs from a 100ms driver, and on macOS
+    /// this reaches the window server; re-asserting the flag ten times a second
+    /// would be a permanent round trip for a value that changes twice per
+    /// recording. The memo is the same shape as X11's input-region memo, and for
+    /// the same reason.
+    ///
+    /// **Only the hook call is guarded.** What the button says is decided on
+    /// every `refresh` instead, in `refresh` itself: a change-guarded label
+    /// would be overwritten by the next tick's `set_text(action)` and never
+    /// restored, so the hint would appear for one frame and vanish.
+    fn sync_passthrough(&self, on: bool) {
+        if self.passthrough.get() == on {
+            return;
+        }
+        self.passthrough.set(on);
+        (self.hooks.set_passthrough)(on);
+    }
+
     /// Push the current state into the widgets.
     ///
     /// The single writer of visual state, so the button label, the border colour
@@ -1455,9 +1490,31 @@ impl Chrome {
         };
 
         self.shell.add_css_class(class);
-        self.record_label.set_text(action);
-        self.record.set_sensitive(sensitive);
         self.status.set_text(&status);
+
+        // The frame must stop taking clicks for as long as a recording is
+        // running, so the user can work in whatever is behind it. X11 does
+        // nothing here; macOS turns the whole window click-through (ADR 0017).
+        let passthrough = matches!(state, State::Recording { .. } | State::Stopping { .. });
+        self.sync_passthrough(passthrough);
+
+        // `None` means the action button can still be clicked — X11's answer,
+        // always. `Some` means it cannot, and names what stops the recording
+        // instead. The button is replaced rather than greyed out: a disabled
+        // Stop button would still be claiming a recording can be stopped from
+        // here, which is ADR 0012's failure with extra steps.
+        match passthrough.then(|| (self.hooks.stop_hint)()).flatten() {
+            Some(hint) => {
+                self.record_label.set_text(&hint);
+                self.record.set_sensitive(false);
+                self.record.add_css_class("glimpse-action-hint");
+            }
+            None => {
+                self.record_label.set_text(action);
+                self.record.set_sensitive(sensitive);
+                self.record.remove_css_class("glimpse-action-hint");
+            }
+        }
         self.chip.set_text(match self.mode.get() {
             // A still is always PNG, so reporting the recording format here would
             // be reporting something that does not apply.

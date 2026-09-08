@@ -25,6 +25,11 @@ pub type GrabFn = Box<dyn Fn(&GrabRequest) -> Result<GrabCommand>>;
 pub type GeometrySettledFn = Box<dyn Fn()>;
 /// Platform diagnostics for the self-test report, as whole lines of text.
 pub type DiagnosticsFn = Box<dyn Fn() -> String>;
+/// Turn click-through on or off for as long as the user must reach what is
+/// behind the frame.
+pub type SetPassthroughFn = Box<dyn Fn(bool)>;
+/// What stops a recording while the chrome cannot be clicked, if anything does.
+pub type StopHintFn = Box<dyn Fn() -> Option<String>>;
 
 /// The platform half of the chrome.
 ///
@@ -69,6 +74,45 @@ pub struct PlatformHooks {
     /// X11 needs, not by the design that replaced it on the other side.
     pub geometry_settled: GeometrySettledFn,
 
+    /// The user needs to reach whatever is behind the frame — or has stopped
+    /// needing to.
+    ///
+    /// **Both entries below exist because this crate's own rule was applied, not
+    /// waived.** The header of this file says every hook exists because a
+    /// specific line needs it and nothing was added for symmetry, so two
+    /// additions want naming: `refresh` has to make the window stop taking
+    /// clicks when a recording starts, and it has to render something other than
+    /// a dead button in the place the button would go. Neither is expressible in
+    /// the four hooks that were already here.
+    ///
+    /// X11 does nothing: its hole is punched out of the input region and passes
+    /// clicks at all times, recording or not. macOS turns the whole window
+    /// click-through and dims it, because the middle of a GTK window cannot be
+    /// made click-through there and the mode is the way around that
+    /// ([ADR 0017](../../../docs/adr/0017-click-through-is-a-mode-not-a-window.md)).
+    ///
+    /// Called only on a change, never on every `refresh`. On macOS this reaches
+    /// the window server, and the flag it sets is asynchronous.
+    pub set_passthrough: SetPassthroughFn,
+
+    /// What to show where the action button goes, while passthrough is on.
+    ///
+    /// `None` means the button still works and should be shown — X11's answer,
+    /// always, because its chrome keeps taking clicks while it records.
+    ///
+    /// `Some(hint)` means the button is unreachable and this is what stops the
+    /// recording instead. Showing the button anyway would be
+    /// [ADR 0012](../../../docs/adr/0012-a-setting-a-backend-cannot-honour.md)'s
+    /// failure exactly: a control that is visible, looks live, and does nothing.
+    ///
+    /// **A closure rather than a string, because the answer is not fixed.** The
+    /// shortcut is configurable, so a literal would disagree with the binding as
+    /// soon as anyone changed it; and registration can fail outright when
+    /// another application already owns the combination, in which case the
+    /// honest answer names something else that does work. A hint is only worth
+    /// showing if it is rendered from state known to be live.
+    pub stop_hint: StopHintFn,
+
     /// Platform diagnostics for the self-test, as free text.
     ///
     /// Text, and not anything structured, because the two platforms have nothing
@@ -110,6 +154,10 @@ impl PlatformHooks {
             capture_rect: Box::new(|| anyhow::bail!("no platform: capture_rect is unavailable")),
             grab: Box::new(|_| anyhow::bail!("no platform: grab is unavailable")),
             geometry_settled: Box::new(|| {}),
+            set_passthrough: Box::new(|_| {}),
+            // Not `Some("...")`: a stub that named a stop path would put a
+            // shortcut in front of a user that nothing is listening for.
+            stop_hint: Box::new(|| None),
             diagnostics: Box::new(|| "no platform".to_string()),
             honours_pointer_capture: false,
         }

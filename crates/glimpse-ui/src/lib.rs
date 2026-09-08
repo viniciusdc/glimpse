@@ -190,6 +190,15 @@ window.glimpse-below .glimpse-shell {{ background: {status_bg}; }}
   text-shadow: none;
 }}
 .glimpse-action-main {{ border-radius: 14px 0 0 14px; padding: 0 12px 0 16px; }}
+/* The action button while the window is passing clicks through: it is a label
+   naming what stops the recording, not a control. It must not read as pressable,
+   because it is not — the window it sits on takes no clicks at all (ADR 0017). */
+.glimpse-action-hint {{
+  background: transparent;
+  border: 1px solid {chip_line};
+  font-size: 12px;
+}}
+.glimpse-action-hint:hover {{ background: transparent; }}
 .glimpse-action-arrow {{
   border-radius: 0 14px 14px 0;
   padding: 0 8px;

@@ -33,13 +33,11 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/lib.rs            Surface, split by what needs a toolkit
   src/grab.rs           Rect → avfoundation arguments, and the screen device lookup
   src/geometry.rs       The AppKit → capture-rect flip. No AppKit, so tested everywhere
-  src/layout.rs         Where the two windows go. Also toolkit-free, also tested
-  src/window.rs         Reaching through GTK to the NSWindow; placement, lockstep
-  src/frame.rs          Two windows; the frame one takes no clicks at all
-  src/hooks.rs          The four platform facts the shared chrome asks for
-  src/app.rs            Application entry: put the frame up, report its rect
+  src/window.rs         Reaching through GTK to the NSWindow; placement, passthrough
+  src/ui.rs             macOS's window model: one window, click-through as a mode
+  src/app.rs            Application entry: put the frame up and let it float
   examples/record.rs    Record a fixed region end to end, no window involved
-  examples/frame.rs     Show the frame and read its geometry back from the server
+  examples/capture_rect_follows.rs     The rect tracks the window; it is not cached
   examples/one_window_hit_test.rs      Can one GTK window be click-through? (ADR 0017)
   examples/click_through_blackboard.rs Clicks aimed at a hole, and what caught them
   examples/sharing_type_capture.rs     Does sharingType keep a window out of a grab?
