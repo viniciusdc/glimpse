@@ -34,10 +34,13 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/grab.rs           Rect → avfoundation arguments, and the screen device lookup
   src/geometry.rs       The AppKit → capture-rect flip. No AppKit, so tested everywhere
   src/window.rs         Reaching through GTK to the NSWindow; placement, passthrough
+  src/stop.rs           What can stop a recording, reported only once it is installed
+  src/menubar.rs        The menu bar item: reachable when the window is not
   src/ui.rs             macOS's window model: one window, click-through as a mode
   src/app.rs            Application entry: put the frame up and let it float
   examples/record.rs    Record a fixed region end to end, no window involved
   examples/capture_rect_follows.rs     The rect tracks the window; it is not cached
+  examples/menubar_probe.rs            Can a status item reach the bar without GTK?
   examples/one_window_hit_test.rs      Can one GTK window be click-through? (ADR 0017)
   examples/click_through_blackboard.rs Clicks aimed at a hole, and what caught them
   examples/sharing_type_capture.rs     Does sharingType keep a window out of a grab?

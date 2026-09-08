@@ -193,12 +193,30 @@ window.glimpse-below .glimpse-shell {{ background: {status_bg}; }}
 /* The action button while the window is passing clicks through: it is a label
    naming what stops the recording, not a control. It must not read as pressable,
    because it is not — the window it sits on takes no clicks at all (ADR 0017). */
-.glimpse-action-hint {{
+/* Written with the state class in the selector, not just `.glimpse-action-hint`.
+   Passthrough is only ever on while recording, and `.state-recording
+   .glimpse-action` matches the same element at the SAME specificity, so source
+   order decided it and the later rule won: the hint painted as a red button
+   that could not be pressed, which is the exact thing it exists to avoid.
+   Naming both classes puts it a class ahead rather than relying on where in
+   this string the block happens to sit. */
+.glimpse-action.glimpse-action-hint,
+.state-recording .glimpse-action.glimpse-action-hint,
+.state-stopping  .glimpse-action.glimpse-action-hint {{
   background: transparent;
   border: 1px solid {chip_line};
+  border-radius: 14px;
+  /* The palette's text colour, NOT white. White belongs to the blue and red
+     button fills; on a transparent pill over the light recording header
+     (#f6e9e9) it is illegible, and the whole window is dimmed to 0.8 on top of
+     that. This has to stay readable in both themes at reduced opacity, because
+     it is the only thing on screen saying how to stop the recording. */
+  color: {emphasis};
   font-size: 12px;
+  padding: 0 14px;
 }}
-.glimpse-action-hint:hover {{ background: transparent; }}
+.glimpse-action.glimpse-action-hint:hover,
+.state-recording .glimpse-action.glimpse-action-hint:hover {{ background: transparent; }}
 /* The arrow half of the split button.
    A GtkMenuButton is a CONTAINER, not a button: it wraps an internal GtkButton
    that carries the theme's own background, border, radius, shadow and metrics.

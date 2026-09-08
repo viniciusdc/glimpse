@@ -132,6 +132,10 @@ pub struct Chrome {
     chip: gtk::Label,
     rec_label: gtk::Label,
     rule: gtk::Box,
+    /// The split button's arrow. Hidden while the window takes no clicks: it is
+    /// a control, and leaving a control on screen that cannot be operated is the
+    /// same failure as leaving the Stop button there.
+    mode_button: gtk::MenuButton,
     progress: gtk::ProgressBar,
     sheet: gtk::Box,
     sheet_title: gtk::Label,
@@ -429,6 +433,7 @@ impl Chrome {
             chip: chip.clone(),
             rec_label: rec_label.clone(),
             rule: rule.clone(),
+            mode_button: mode_button.clone(),
             progress: progress.clone(),
             sheet: sheet.clone(),
             sheet_title: sheet_title.clone(),
@@ -624,6 +629,26 @@ impl Chrome {
 
     pub fn frozen_rect(&self) -> Option<ScreenPixelRect> {
         self.frozen.get()
+    }
+
+    /// Stop a running recording from outside the window.
+    ///
+    /// A menu bar item or a global hotkey lands here, because on macOS the
+    /// chrome cannot be clicked while a recording runs
+    /// ([ADR 0017](../../../docs/adr/0017-click-through-is-a-mode-not-a-window.md)).
+    ///
+    /// **Refuses unless a recording is actually running**, and reports whether
+    /// it did anything. An external caller cannot see the state machine, so it
+    /// would otherwise be able to fire `Stop` into `Idle` or `Encoding` — and
+    /// the whole point of routing everything through `transition` is that no
+    /// caller gets to invent a transition. Returning `false` also lets the
+    /// caller keep quiet rather than reporting a stop that did not happen.
+    pub fn stop_from_outside(self: &Rc<Self>) -> bool {
+        if !matches!(&*self.state.borrow(), State::Recording { .. }) {
+            return false;
+        }
+        self.dispatch(Event::Stop);
+        true
     }
 
     /// What a recording would capture right now, without freezing anything.
@@ -1508,11 +1533,16 @@ impl Chrome {
                 self.record_label.set_text(&hint);
                 self.record.set_sensitive(false);
                 self.record.add_css_class("glimpse-action-hint");
+                // The arrow chooses between Record and Snapshot. Neither is
+                // reachable while the window takes no clicks, and an arrow left
+                // beside a label reads as though the label were a button.
+                self.mode_button.set_visible(false);
             }
             None => {
                 self.record_label.set_text(action);
                 self.record.set_sensitive(sensitive);
                 self.record.remove_css_class("glimpse-action-hint");
+                self.mode_button.set_visible(true);
             }
         }
         self.chip.set_text(match self.mode.get() {

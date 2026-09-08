@@ -19,9 +19,12 @@
 
 pub mod geometry;
 pub mod grab;
+pub mod stop;
 
 #[cfg(target_os = "macos")]
 pub mod app;
+#[cfg(target_os = "macos")]
+pub mod menubar;
 #[cfg(target_os = "macos")]
 pub mod ui;
 #[cfg(target_os = "macos")]

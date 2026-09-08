@@ -16,10 +16,15 @@ use std::rc::Rc;
 use glimpse_ui::{Chrome, Hole, PlatformHooks};
 
 use crate::grab::AvfCapture;
+use crate::stop::StopPaths;
 use crate::window::{capture_rect_of, set_passthrough, window_nswindow};
 
 /// The chrome, assembled into one window.
-pub fn build(app: &gtk::Application) -> Rc<Chrome> {
+///
+/// `stop` is filled in by the caller *after* this returns, because the stop
+/// paths need something to stop and the chrome has to exist first. The hook
+/// reads it on every refresh, so it picks up whatever installed itself.
+pub fn build(app: &gtk::Application, stop: StopPaths) -> Rc<Chrome> {
     Chrome::new(
         app,
         // Same as X11 now. The hole is a widget in this window, and clicks reach
@@ -69,11 +74,11 @@ pub fn build(app: &gtk::Application) -> Rc<Chrome> {
                     }
                 }),
 
-                // No stop path exists yet, so nothing is claimed. The chrome
-                // shows its own button when this is None, which is wrong while
-                // passthrough is on and is the next thing to build — but a hint
-                // naming a shortcut that is not registered would be worse.
-                stop_hint: Box::new(|| None),
+                // Whatever actually installed itself, and nothing otherwise.
+                // Read on every refresh rather than captured once, so a stop
+                // path registered after the window came up is picked up — and
+                // so one that failed to register is never claimed.
+                stop_hint: Box::new(move || stop.hint().map(|h| format!("Stop: {h}"))),
 
                 diagnostics: Box::new(move || diagnostics(&dw, &dh)),
 

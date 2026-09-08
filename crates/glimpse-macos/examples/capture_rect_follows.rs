@@ -65,7 +65,9 @@ mod imp {
         let failed_c = failed.clone();
 
         app.connect_activate(move |app| {
-            let chrome = glimpse_macos::ui::build(app);
+            // No stop paths: this probe never records, and an empty `StopPaths`
+            // is what the chrome sees before a frontend installs any.
+            let chrome = glimpse_macos::ui::build(app, Default::default());
             chrome.window.present();
 
             let (c, failed) = (chrome.clone(), failed_c.clone());

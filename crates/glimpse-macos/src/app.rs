@@ -18,8 +18,43 @@ use std::process::ExitCode;
 use std::rc::Rc;
 
 use glimpse_ui::Chrome;
+use objc2_foundation::MainThreadMarker;
 
+use crate::menubar::MenuBarItem;
+use crate::stop::StopPaths;
 use crate::window::{set_floating, window_nswindow};
+
+/// Wait for the system to give the menu bar item a slot, then declare it usable.
+///
+/// **Polled rather than assumed, and never assumed on a timer alone.** Placement
+/// is asynchronous and does not happen in the turn the item is created — its
+/// window reads `30x0` at the origin at that moment whether or not it will ever
+/// be placed. Sleeping "long enough" and declaring success is how a stop path
+/// that does not exist gets advertised in place of a Stop button.
+///
+/// Only on success is the path recorded, because the chrome renders whatever
+/// `StopPaths` names.
+fn await_placement(item: Rc<MenuBarItem>, stop: StopPaths, tries_left: u32) {
+    if item.placed() {
+        stop.add("the menu bar");
+        return;
+    }
+    if tries_left == 0 {
+        // The geometry, not a guess at the cause. "The menu bar is full" was the
+        // first guess and it was wrong: a bare NSApplication places the identical
+        // item on this machine after one run loop turn
+        // (`examples/menubar_probe.rs`).
+        eprintln!(
+            "glimpse: the menu bar item was never placed, so a recording cannot be \
+             stopped from there. {}",
+            item.report()
+        );
+        return;
+    }
+    glib::timeout_add_local_once(std::time::Duration::from_millis(250), move || {
+        await_placement(item, stop, tries_left - 1);
+    });
+}
 
 /// Run Glimpse on macOS.
 ///
@@ -31,18 +66,23 @@ pub fn run() -> ExitCode {
         .build();
 
     // Held for the lifetime of the application rather than dropped at the end of
-    // `activate`. Dropping this drops its GTK window, and the frame would vanish
-    // the instant it appeared.
-    let held: Rc<RefCell<Option<Rc<Chrome>>>> = Rc::new(RefCell::new(None));
+    // `activate`. Dropping the chrome drops its GTK window and the frame would
+    // vanish the instant it appeared; dropping the menu bar item removes the one
+    // control that can stop a recording once the window goes click-through.
+    #[allow(clippy::type_complexity)]
+    let held: Rc<RefCell<Option<(Rc<Chrome>, Option<Rc<MenuBarItem>>)>>> =
+        Rc::new(RefCell::new(None));
     let held_c = held.clone();
 
     app.connect_activate(move |app| {
-        let chrome = crate::ui::build(app);
+        let stop = StopPaths::default();
+        let chrome = crate::ui::build(app, stop.clone());
         chrome.window.present();
 
         // GTK maps windows asynchronously, so there is no NSWindow to configure
         // until the main loop has turned.
         let c = chrome.clone();
+        let held = held_c.clone();
         glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
             match window_nswindow(c.window.upcast_ref()) {
                 // Above ordinary windows, or the application being recorded
@@ -64,6 +104,26 @@ pub fn run() -> ExitCode {
                 ),
             }
 
+            // The menu bar item, and only recorded as a stop path once the
+            // system has actually placed it. The chrome replaces its Stop button
+            // with whatever `StopPaths` names, so claiming an item that was
+            // never placed would put a label on screen pointing at nothing —
+            // ADR 0012's failure, applied to the one control that can end a
+            // recording.
+            if let Some(mtm) = MainThreadMarker::new() {
+                let weak = Rc::downgrade(&c);
+                let item = Rc::new(MenuBarItem::install(mtm, move || {
+                    // Weak, so the item cannot keep the chrome alive.
+                    if let Some(chrome) = weak.upgrade() {
+                        chrome.stop_from_outside();
+                    }
+                }));
+                if let Some(slot) = held.borrow_mut().as_mut() {
+                    slot.1 = Some(item.clone());
+                }
+                await_placement(item, stop, 12);
+            }
+
             // `frame up. capture rect` is a contract, not a log line: the macOS
             // CI job waits for it and fails the build if the binary comes up
             // without it. It is also the only thing that distinguishes "the
@@ -79,7 +139,9 @@ pub fn run() -> ExitCode {
             }
         });
 
-        *held_c.borrow_mut() = Some(chrome);
+        // The menu bar item slot starts empty and is filled by the timeout above
+        // once the system has had a chance to place it.
+        *held_c.borrow_mut() = Some((chrome, None));
     });
 
     ExitCode::from(glib::ExitCode::get(&app.run()))
