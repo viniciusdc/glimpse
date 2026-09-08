@@ -98,9 +98,12 @@ pub fn build(app: &gtk::Application, stop: StopPaths) -> Rc<Chrome> {
             // One window, in the order ADR 0006 designed, exactly as X11 leaves
             // it. No re-parenting into other windows, no strips, no seams.
             //
-            // No resize edges yet: issue #10. One window is their precondition
-            // and GDK already gives this one the Resizable style mask, but
-            // whether the Quartz backend forwards `begin_resize` is unmeasured.
+            // No resize edges, and none are wanted. X11 installs eight overlay
+            // widgets handing off to `begin_resize` because an undecorated GTK
+            // window there has no edges of its own (ADR 0006). GDK on macOS
+            // builds a titled NSWindow carrying the Resizable style mask —
+            // measured, 0x800f — so AppKit already supplies them. Adding the
+            // overlay here would be re-implementing the platform.
             window.set_child(Some(parts.shell));
         },
     )

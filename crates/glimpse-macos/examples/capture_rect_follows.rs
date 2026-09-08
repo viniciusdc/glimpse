@@ -167,17 +167,82 @@ mod imp {
             ));
         }
 
-        if wrong.is_empty() {
-            println!(
-                "\nPASS: the capture rect followed the window by exactly ({}, {}) device pixels.",
-                after.x - before.x,
-                after.y - before.y
-            );
-            println!("      The rectangle is derived, not remembered (ADR 0017).");
-            Ok(())
-        } else {
-            anyhow::bail!("FAIL: {}", wrong.join("; "))
+        if !wrong.is_empty() {
+            anyhow::bail!("FAIL (move): {}", wrong.join("; "));
         }
+        println!(
+            "\nmove: the capture rect followed by exactly ({}, {}) device pixels.",
+            after.x - before.x,
+            after.y - before.y
+        );
+
+        // ---- and the same question for a RESIZE -------------------------
+        //
+        // Resizing was issue #10's open question, and the answer arrived by
+        // hand: dragging the window edge works, because GDK gives the window the
+        // Resizable style mask and AppKit provides its own edges. What a manual
+        // drag cannot check is the consequence — that the recorded region
+        // follows the frame it is drawn inside. A frame you can resize into a
+        // rectangle that records something else is worse than one you cannot
+        // resize at all.
+        let grow_w = 90.0;
+        let grow_h = 60.0;
+        let f = appkit_frame(&ns);
+        // `setFrame:display:` and not `setFrameOrigin:`: this is a size change,
+        // and it deliberately keeps the origin so the two effects do not have to
+        // be told apart.
+        ns.setFrame_display(
+            objc2_foundation::NSRect::new(
+                NSPoint::new(f.x, f.y),
+                objc2_foundation::NSSize::new(f.w + grow_w, f.h + grow_h),
+            ),
+            true,
+        );
+        pump();
+
+        let grown_frame = appkit_frame(&ns);
+        let grown = chrome
+            .capture_rect()
+            .context("capture_rect after the resize")?;
+        println!(
+            "follows: window {}x{}          capture rect {}x{} at {},{}",
+            grown_frame.w as i64, grown_frame.h as i64, grown.w, grown.h, grown.x, grown.y
+        );
+
+        // Control again: a window that refused to resize would make an unchanged
+        // rectangle look like a pass.
+        let dw = grown_frame.w - f.w;
+        let dh = grown_frame.h - f.h;
+        if (dw - grow_w).abs() > 0.5 || (dh - grow_h).abs() > 0.5 {
+            anyhow::bail!(
+                "CONTROL FAILED: asked the window to grow by ({grow_w}, {grow_h}) and it grew \
+                 by ({dw}, {dh}). Nothing below is evidence."
+            );
+        }
+
+        // The hole grows with the window, so the recorded region must grow by
+        // the same amount in device pixels. The chrome above and the status bar
+        // below keep their heights, so all of the extra height lands in the hole.
+        let want_w = before.w + (grow_w * scale) as i32;
+        let want_h = before.h + (grow_h * scale) as i32;
+        let mut wrong = Vec::new();
+        if grown.w != want_w {
+            wrong.push(format!("width: got {}, want {want_w}", grown.w));
+        }
+        if grown.h != want_h {
+            wrong.push(format!("height: got {}, want {want_h}", grown.h));
+        }
+        if !wrong.is_empty() {
+            anyhow::bail!("FAIL (resize): {}", wrong.join("; "));
+        }
+
+        println!(
+            "resize: the capture rect grew by exactly ({}, {}) device pixels.",
+            grown.w - before.w,
+            grown.h - before.h
+        );
+        println!("\nPASS: the rectangle is derived on every call, not remembered (ADR 0017).");
+        Ok(())
     }
 
     fn pump() {

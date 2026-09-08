@@ -16,11 +16,16 @@
 # be stopped, and the first thing that reproduced it was driving a journey by
 # hand.
 #
-# WHY IT CANNOT RUN IN CI. avfoundation needs Screen Recording permission, which
-# is granted to an application by a human at a system dialog. A GitHub runner has
-# no one to grant it, so every journey would fail for a reason that is not a
-# product bug — which is worse than not running them, because a red check nobody
-# can act on is a check people learn to ignore.
+# WHY IT CANNOT RUN IN CI, MEASURED. The macOS job attempts a one-second
+# avfoundation capture on every build and reports the result. On a GitHub runner
+# it refuses: ffmpeg exits 251 with "Error opening input: Input/output error",
+# and even enumerating the devices fails, so there is no screen device to ask for
+# permission to. Every journey would therefore fail for a reason that is not a
+# product bug — worse than not running them, because a red check nobody can act
+# on is one people learn to ignore.
+#
+# That step is not decoration: if a future runner image can capture, it says so,
+# and this file should start running there.
 #
 # WHY IT USES YOUR SCREEN. There is no Xvfb on macOS. The journeys put a window
 # up, record a region of your desktop and write a file. AGENTS.md says not to run

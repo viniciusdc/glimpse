@@ -257,12 +257,14 @@ hotkey must be global.
   to matter even once per state change — a click posted in the window between
   `setIgnoresMouseEvents` and the server acting on it — the mode is not safe and
   the three windows come back. Measure the lag before wiring the transition.
-- **`begin_resize` not implemented on the Quartz backend.** The Resizable style
-  mask says AppKit is willing; it does not say GDK forwards a GTK-initiated
-  resize. Untested — it needs a real pointer drag, and synthesised drags require
-  Accessibility. `GLIMPSE_PROBE_HOLD=1 cargo run -p glimpse-macos --example
-  single_window_frame` puts a grip on screen for a human to drag. If it does
-  nothing, resize is still open, though no worse than today.
+- ~~**`begin_resize` not implemented on the Quartz backend.**~~ **Answered, and
+  the question was the wrong one.** Dragging the window edge resizes it, with no
+  `begin_resize` involved at all: GDK builds a titled `NSWindow` with the
+  `Resizable` style mask, so AppKit supplies the edges that X11 needs eight
+  overlay widgets to fake. Verified by hand for the drag, and by
+  `examples/capture_rect_follows.rs` for the part a drag cannot show — growing
+  the window by 90x60 points grows the capture rect by exactly 180x120 device
+  pixels, on every macOS build.
 - **Sheet reflow moving the hole.** In one window the sheet appearing grows the
   window and GTK reflows; if that moves the hole while a recording is running,
   `geometry_drifted` must catch it. On X11 it already does. Verify rather than

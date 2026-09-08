@@ -298,12 +298,48 @@ jobs:
             exit 1
           fi
 
+      # Can this runner capture the screen at all?
+      #
+      # MEASURED, NOT ASSUMED. "A runner has no Screen Recording permission" was
+      # asserted in three places before anyone tried it, and the whole reason the
+      # macOS journeys do not run here rests on it. Deciding what CI can hold
+      # from a guess is how a platform ends up with no coverage for a reason
+      # nobody checked.
+      #
+      # The answer, as of this being written: REFUSED. ffmpeg exits 251 with
+      # "Error opening input: Input/output error", and even enumerating the
+      # devices fails, so there is no screen device to ask for permission to.
+      #
+      # It stays anyway, and never gates. Runner images change, and this is the
+      # one thing that would notice the constraint lifting — at which point
+      # `scripts/journeys-macos.sh` can run here and several comments saying it
+      # cannot become wrong.
+      - name: Can this runner capture the screen?
+        run: |
+          set +e
+          ffmpeg -hide_banner -loglevel error -f avfoundation -list_devices true -i "" 2>&1 \
+            | sed 's/^/  devices: /'
+          out=$(ffmpeg -hide_banner -nostdin -f avfoundation -framerate 15 -pix_fmt bgr0 \
+                  -i "2:none" -t 1 -c:v ffv1 -y /tmp/ci-capture.mkv 2>&1)
+          rc=$?
+          echo "  ffmpeg exit: $rc"
+          echo "$out" | tail -15 | sed 's/^/  /'
+          if [ $rc -eq 0 ] && [ -s /tmp/ci-capture.mkv ]; then
+            frames=$(ffprobe -v error -count_frames -select_streams v:0 \
+              -show_entries stream=nb_read_frames -of csv=p=0 /tmp/ci-capture.mkv)
+            echo "CAPTURE-ON-CI: works, $frames frames"
+          else
+            echo "CAPTURE-ON-CI: refused"
+          fi
+          exit 0
+
       # The macOS half of the journeys, or as much of it as a runner can hold.
       #
-      # The five user journeys all RECORD, and avfoundation needs Screen
-      # Recording permission — granted by a human at a system dialog, which a
-      # runner has nobody to answer. They run locally through
-      # `scripts/journeys-macos.sh` instead.
+      # The five user journeys all RECORD, and the step above measures that this
+      # runner cannot: ffmpeg exits 251 opening the avfoundation input, and the
+      # device list is empty. They run locally through
+      # `scripts/journeys-macos.sh` instead, which is the honest place for a
+      # check that needs a screen a human has unlocked.
       #
       # This one does not record. It builds the real chrome, asks it what it
       # would capture, moves the window, and asks again — the regression guard
