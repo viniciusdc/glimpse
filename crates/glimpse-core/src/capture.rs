@@ -266,13 +266,69 @@ pub fn sweep_stale_workspaces() -> usize {
         if process_is_alive(pid) {
             continue;
         }
+        // Kill BEFORE deleting. On Linux there is nothing to kill —
+        // `PR_SET_PDEATHSIG` already took the child down with its parent — but
+        // off Linux `die_with_parent` is a no-op, so a hard-killed Glimpse
+        // leaves an ffmpeg still recording. Deleting only the directory left it
+        // running, writing into a path that no longer existed, and holding the
+        // screen capture device: the next recording then got no frames, never
+        // reached the point where ffmpeg reads `q`, and was killed at the
+        // graceful-stop timeout. Every later attempt failed the same way, one
+        // orphan at a time. See issue #45.
+        kill_orphaned_capture(&entry.path());
         match std::fs::remove_dir_all(entry.path()) {
             Ok(()) => removed += 1,
+            // Already gone is the outcome this wanted, not a failure. Reporting
+            // it sent users looking for a permissions problem that was not
+            // there.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => eprintln!("glimpse: could not remove {}: {e}", entry.path().display()),
         }
     }
     removed
 }
+
+/// Kill any capture process still recording into a workspace whose owner is gone.
+///
+/// **Identified by the workspace path in its argument list, never by name.**
+/// Killing every `ffmpeg` on the machine would be killing other people's work;
+/// the only processes this may touch are ones writing into a directory Glimpse
+/// created, for a Glimpse process the caller has already established is dead.
+///
+/// Linux does not need this and does not pay for it: `PR_SET_PDEATHSIG` takes
+/// the child down with its parent, so there is nothing left to find. Off Linux
+/// `die_with_parent` is a no-op, and `Ctrl-C` alone is enough to orphan a
+/// recording — `Drop` never runs on a signal.
+///
+/// Best effort throughout. Failing to kill an orphan is not a reason to refuse
+/// to start; it only means the user meets issue #45 again.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn kill_orphaned_capture(workspace: &Path) {
+    let Some(path) = workspace.to_str() else {
+        return;
+    };
+    // `pgrep -f` matches against the full command line, which is where the
+    // workspace path appears as the output file.
+    let Ok(out) = Command::new("pgrep").arg("-f").arg(path).output() else {
+        return;
+    };
+    let me = std::process::id();
+    for pid in String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.trim().parse::<u32>().ok())
+        .filter(|p| *p != me)
+    {
+        // SAFETY: `kill` on a pid this function just matched to a Glimpse
+        // workspace whose owner is dead.
+        unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+        eprintln!("glimpse: killed orphaned capture {pid} left recording into {path}");
+    }
+}
+
+/// Nothing to do: `PR_SET_PDEATHSIG` already killed it, and on a platform with
+/// no frontend there is nothing to have orphaned.
+#[cfg(not(all(unix, not(target_os = "linux"))))]
+fn kill_orphaned_capture(_workspace: &Path) {}
 
 /// The pid encoded in a `glimpse-<pid>-<n>` directory name, if it is one and it
 /// is not ours.
@@ -388,9 +444,17 @@ impl Recorder {
                     eprintln!(
                         "glimpse: ffmpeg did not stop within {GRACEFUL_STOP_TIMEOUT:?}; killing"
                     );
+                    // Naming the likely cause, because "may be truncated"
+                    // sent a user looking at the file when the problem was
+                    // another process holding the capture device. ffmpeg only
+                    // reads `q` between frames, so an input that is producing
+                    // none never gets there — which is what an orphaned capture
+                    // from an earlier run does (issue #45).
                     return self.terminate().and_then(|_| {
                         Err(anyhow!(
-                            "ffmpeg had to be killed; the recording may be truncated"
+                            "ffmpeg did not respond to a stop request. Another capture \
+                             may be holding the screen; check for a stray ffmpeg. The \
+                             recording may be truncated"
                         ))
                     });
                 }
