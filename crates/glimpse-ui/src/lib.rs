@@ -199,11 +199,41 @@ window.glimpse-below .glimpse-shell {{ background: {status_bg}; }}
   font-size: 12px;
 }}
 .glimpse-action-hint:hover {{ background: transparent; }}
+/* The arrow half of the split button.
+   A GtkMenuButton is a CONTAINER, not a button: it wraps an internal GtkButton
+   that carries the theme's own background, border, radius, shadow and metrics.
+   Styling only the MenuButton leaves that inner node untouched, so the arrow
+   rendered as a default-themed white box with its own drop shadow, taller than
+   the blue half beside it and overflowing it top and bottom — on both
+   platforms, visible in the Linux CI screenshot as much as on macOS.
+   `.glimpse-menu > button` below already does this for the hamburger; the split
+   button was simply missed. The Record half needs no such rule because it is a
+   plain GtkButton with no inner node. */
 .glimpse-action-arrow {{
   border-radius: 0 14px 14px 0;
-  padding: 0 8px;
-  min-width: 20px;
+  /* Zero, so the padding is the inner button's alone. Both would double it. */
+  padding: 0;
+  min-width: 28px;
   border-left: 1px solid rgba(0,0,0,0.22);
+}}
+.glimpse-action-arrow > button {{
+  background: transparent;
+  color: #ffffff;
+  border: 0;
+  border-radius: 0 14px 14px 0;
+  box-shadow: none;
+  min-height: 28px;
+  min-width: 28px;
+  padding: 0 6px;
+  margin: 0;
+}}
+/* Transparent through every state, so the hover belongs to the split button as
+   a whole rather than lighting up one half of it. */
+.glimpse-action-arrow > button:hover,
+.glimpse-action-arrow > button:active,
+.glimpse-action-arrow > button:checked {{
+  background: transparent;
+  box-shadow: none;
 }}
 .glimpse-action:hover {{ background: #4a97ea; }}
 .glimpse-action:disabled {{ opacity: 0.55; }}
