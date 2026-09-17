@@ -31,6 +31,8 @@ pub mod hotkey;
 #[cfg(target_os = "macos")]
 pub mod menubar;
 #[cfg(target_os = "macos")]
+pub mod permission;
+#[cfg(target_os = "macos")]
 pub mod ui;
 #[cfg(target_os = "macos")]
 pub mod window;

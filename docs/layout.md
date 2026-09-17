@@ -37,6 +37,7 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/window.rs         Reaching through GTK to the NSWindow; placement, passthrough
   src/shortcut.rs       Parsing a key combination. Toolkit-free, so Linux CI tests it
   src/hotkey.rs         Registering it with Carbon, which needs no permission
+  src/permission.rs     Ask macOS if we may record, before trying to
   src/bundle.rs         Point GTK at the .app's own schemas and icons, if there is one
   src/stop.rs           What can stop a recording, reported only once it is installed
   src/menubar.rs        The menu bar item: reachable when the window is not

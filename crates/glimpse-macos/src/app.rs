@@ -195,6 +195,17 @@ pub fn run() -> ExitCode {
                 ),
             }
 
+            // Said once, at start-up, and only when the answer is no. A user
+            // whose Glimpse cannot record should learn that from Glimpse rather
+            // than from a recording that fails, and someone who has already
+            // granted it does not need telling on every launch.
+            //
+            // Preflight, never request: a prompt belongs at the moment the user
+            // presses Record, not at the moment they open the application.
+            if !crate::permission::granted() {
+                eprintln!("glimpse: {}", crate::permission::explain());
+            }
+
             // `frame up. capture rect` is a contract, not a log line: the macOS
             // CI job waits for it and fails the build if the binary comes up
             // without it. It is also the only thing that distinguishes "the

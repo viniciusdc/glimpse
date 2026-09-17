@@ -333,6 +333,38 @@ jobs:
           fi
           exit 0
 
+      # The product-level half of the capture measurement above.
+      #
+      # The runner cannot capture, and the step before this proves it at the
+      # ffmpeg level. This asserts Glimpse NOTICES — that it asks the system
+      # rather than discovering the refusal when ffmpeg fails to open a device,
+      # which is what it used to do and what reads to a user as a bug in the app.
+      #
+      # A runner is the only place this can be checked. Any developer machine
+      # that can record has the permission granted, so the refusal path is
+      # unreachable there; here it is the default.
+      - name: It says so when it cannot record
+        run: |
+          ./target/release/glimpse > perm.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 40); do
+            grep -q 'capture rect' perm.log && break
+            kill -0 $pid 2>/dev/null || break
+            sleep 0.5
+          done
+          kill $pid 2>/dev/null || true
+          cat perm.log
+          if ! grep -q 'Screen Recording permission is not granted' perm.log; then
+            echo '::error::the app did not report the missing permission at start-up'
+            exit 1
+          fi
+          # And it must still come up. Refusing to record is not refusing to run:
+          # the user has to be able to see the message and position the frame.
+          grep -q 'capture rect' perm.log || {
+            echo '::error::the app did not start'
+            exit 1
+          }
+
       # The macOS half of the journeys, or as much of it as a runner can hold.
       #
       # The five user journeys all RECORD, and the step above measures that this
