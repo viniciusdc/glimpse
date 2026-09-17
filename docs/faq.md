@@ -5,15 +5,27 @@ Answers about using Glimpse. For how it is built and why, see
 
 ## Can I click things inside the recording area while recording?
 
-Yes. The recording area is a real hole: Glimpse sets an X input shape so the
-middle of the window does not accept pointer events at all, and they go to
+Yes on both platforms, reached two different ways.
+
+On **X11** the recording area is a real hole: Glimpse sets an X input shape so
+the middle of the window does not accept pointer events at all, and they go to
 whatever is underneath. This does not depend on your window manager or on
-stacking order.
+stacking order, and it is true whether or not you are recording.
+
+On **macOS** the whole window stops accepting clicks for as long as a recording
+runs, because GTK there cannot make one region of a window click-through — the
+measurements are in [ADR 0011](adr/0011-why-the-macos-frame-is-more-than-one-window.md)
+and the design in [ADR 0017](adr/0017-click-through-is-a-mode-not-a-window.md).
+Two consequences you will notice: the window dims to show it is not accepting
+clicks, and the Stop button cannot be pressed, so stopping moves to the menu bar
+item and a shortcut. Outside a recording the window does take clicks, so if you
+want to arrange the application underneath before you start, turn on **Pass
+clicks through** in the settings popover.
 
 ## Where does my recording go?
 
-Into your videos folder — `XDG_VIDEOS_DIR` if you have one, otherwise your home
-directory — as `glimpse.gif` or `glimpse.mp4`. Change it under **Save to** in the header's settings popover. If that name is taken Glimpse counts up —
+Into your videos folder — `XDG_VIDEOS_DIR` if you have one, `~/Movies` on
+macOS, otherwise your home directory — as `glimpse.gif` or `glimpse.mp4`. Change it under **Save to** in the header's settings popover. If that name is taken Glimpse counts up —
 `glimpse-1.gif`, `glimpse-2.gif` — rather than overwriting a file you might still
 want. The status line names the file it just wrote, and **Show in folder** opens
 it.
@@ -82,16 +94,52 @@ matters for your threat model, build from source.
 
 ## Are there keyboard shortcuts?
 
-Two: **Esc** stops a recording, and **Print Screen** takes a snapshot when
-nothing is in flight. Both are named in the status strip while they apply.
+On **X11**, two: **Esc** stops a recording, and **Print Screen** takes a snapshot
+when nothing is in flight. Both are named in the status strip while they apply.
+
+On **macOS** those are the same, except while a recording is running. The window
+takes no clicks then, so it cannot hold keyboard focus either, and Esc goes to
+whatever you are working in instead. Stopping therefore has its own **global**
+shortcut, `⌃⌥S` unless you change `stop_shortcut` in `config.toml`, plus the menu
+bar item. Whichever of those actually registered is shown in place of the Stop
+button while the mode is on, so the label cannot name a key nothing is listening
+for.
 
 ## Where are my settings stored?
 
 `~/.config/glimpse/config.toml`. It holds the theme, the output format and
-folder, and the framerate and cursor setting. It is written whenever you change
-something rather than at exit, so a preference survives even if Glimpse is killed.
-If the file is unreadable Glimpse says so and starts with defaults rather than
-refusing to run.
+folder, the framerate and cursor setting, and on macOS the `stop_shortcut` that
+ends a recording. It is written whenever you change something rather than at
+exit, so a preference survives even if Glimpse is killed. If the file is
+unreadable Glimpse says so and starts with defaults rather than refusing to run.
+
+Two keys there do nothing on macOS: `capture_mouse` (see below) and, on Linux,
+`stop_shortcut`, which X11 has no use for because its Stop button stays
+clickable.
+
+## Why is there no Capture pointer switch on macOS?
+
+Because it would not do anything.
+
+Glimpse records through ffmpeg, and on macOS that means the `avfoundation`
+input. It accepts a `-capture_cursor` flag and **ignores it**, in the off
+direction: the pointer is never drawn, whatever you ask for. That was measured
+rather than assumed — against a static window with the pointer parked in it and a
+cursor provably rendered there, three runs gave a signal of zero, and the frame
+was an exact match for a cursor-free reference capture.
+
+So the switch is not shown.
+[ADR 0012](adr/0012-a-setting-a-backend-cannot-honour.md) decides that a setting
+a backend cannot honour is not offered at all, on the grounds that a control
+which flips, persists across restarts and changes nothing is the same failure as
+a file that lies about its contents. A missing control is confusing once; a
+control that lies is confusing every time.
+
+`capture_mouse` still exists in `config.toml`, because the file is shared with
+X11 where the setting does work. Editing it by hand on macOS is allowed and has
+no effect.
+
+x11grab does honour it, so the switch is there on Linux.
 
 ## Can I record audio, or my webcam, or the whole desktop?
 
@@ -111,11 +159,11 @@ shipped exactly that since 2011. The correction is recorded in
 window model it settled on — after two further corrections — in
 [ADR 0017](adr/0017-click-through-is-a-mode-not-a-window.md).
 
-macOS records today, through the same chrome Linux runs. The one visible
-difference is that its window stops accepting clicks while recording, so the
-Stop button moves to the menu bar and a shortcut; the reasoning is in ADR 0017.
-What is still missing is resize and an `.app` bundle, so there is no release
-artifact and it is built from source.
+macOS records today, through the same chrome Linux runs, and resizes by
+dragging the window edge. The one visible difference is that its window stops
+accepting clicks while recording, so the Stop button moves to the menu bar and a
+shortcut; the reasoning is in ADR 0017. What is still missing is an `.app`
+bundle, so there is no release artifact and it is built from source.
 
 Windows is untouched. Nobody has measured anything there, so read its absence as
 unexamined rather than settled — which is precisely the mistake this answer made
