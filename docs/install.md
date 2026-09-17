@@ -93,10 +93,30 @@ it. The same shortcut turns it back off.
 Why it works this way, and the six things measured before settling on it, are in
 [ADR 0017](adr/0017-click-through-is-a-mode-not-a-window.md).
 
+### Building the app bundle
+
+```sh
+make bundle-macos      # -> target/Glimpse.app
+```
+
+This is the shape macOS actually wants ([ADR 0013](adr/0013-macos-ships-an-app-bundle.md)):
+the binary, the 39 GTK dylibs it needs with their load paths rewritten, the
+GSettings schemas and icon theme, and a bundle identifier for Screen Recording
+permission to attach to. It refuses to finish unless no Homebrew path survives
+anywhere in the bundle and the app it just built starts and reports a capture
+rect.
+
+Launching `Glimpse.app` from Finder is the only way the permission can persist
+against Glimpse rather than against whatever terminal started it.
+
 ### What is missing
 
-- **An `.app` bundle**, so releases are source-only on macOS
-  ([ADR 0013](adr/0013-macos-ships-an-app-bundle.md)).
+- **A published release artifact.** The bundle builds, but nothing ships it yet
+  ([issue #13](https://github.com/viniciusdc/glimpse/issues/13)), so macOS is
+  still install-from-source.
+- **Signing and notarization.** The bundle is ad-hoc signed, which satisfies the
+  kernel but not Gatekeeper. A bundle downloaded through a browser would be
+  quarantined; one fetched with `curl` is not.
 
 The capture path can also be exercised without any window at all:
 
