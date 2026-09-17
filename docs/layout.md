@@ -46,6 +46,7 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   examples/record.rs    Record a fixed region end to end, no window involved
   examples/capture_rect_follows.rs     The rect tracks the window; it is not cached
   examples/menubar_probe.rs            Can a status item reach the bar without GTK?
+  examples/permission_probe.rs         What macOS says about Screen Recording here
   examples/one_window_hit_test.rs      Can one GTK window be click-through? (ADR 0017)
   examples/click_through_blackboard.rs Clicks aimed at a hole, and what caught them
   examples/sharing_type_capture.rs     Does sharingType keep a window out of a grab?

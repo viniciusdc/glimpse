@@ -333,37 +333,21 @@ jobs:
           fi
           exit 0
 
-      # The product-level half of the capture measurement above.
+      # What does macOS actually say about the permission here?
       #
-      # The runner cannot capture, and the step before this proves it at the
-      # ffmpeg level. This asserts Glimpse NOTICES — that it asks the system
-      # rather than discovering the refusal when ffmpeg fails to open a device,
-      # which is what it used to do and what reads to a user as a bug in the app.
+      # REPORTED, NOT ASSERTED, and it is the second time this exact assumption
+      # has had to be walked back. The first version of this step asserted the
+      # runner would report the permission as MISSING, on the reasoning that a
+      # runner has nobody to grant it. It fails: preflight comes back **granted**.
+      # What the runner does not have is a screen device — `-list_devices`
+      # returns an I/O error and an empty list, which the step above measures.
       #
-      # A runner is the only place this can be checked. Any developer machine
-      # that can record has the permission granted, so the refusal path is
-      # unreachable there; here it is the default.
-      - name: It says so when it cannot record
-        run: |
-          ./target/release/glimpse > perm.log 2>&1 &
-          pid=$!
-          for _ in $(seq 1 40); do
-            grep -q 'capture rect' perm.log && break
-            kill -0 $pid 2>/dev/null || break
-            sleep 0.5
-          done
-          kill $pid 2>/dev/null || true
-          cat perm.log
-          if ! grep -q 'Screen Recording permission is not granted' perm.log; then
-            echo '::error::the app did not report the missing permission at start-up'
-            exit 1
-          fi
-          # And it must still come up. Refusing to record is not refusing to run:
-          # the user has to be able to see the message and position the frame.
-          grep -q 'capture rect' perm.log || {
-            echo '::error::the app did not start'
-            exit 1
-          }
+      # So "CI cannot record" is true for a reason that is not permission, and
+      # the refusal path in `glimpse_macos::permission` stays unreachable here.
+      # It is exercised by its unit tests and by a machine where the grant is
+      # genuinely absent, not by this.
+      - name: What macOS says about Screen Recording permission
+        run: cargo run --locked -p glimpse-macos --example permission_probe
 
       # The macOS half of the journeys, or as much of it as a runner can hold.
       #
@@ -394,12 +378,18 @@ jobs:
   # UI is wired to that policy.
   #
   # X11 only, and no longer because it is the only frontend: macOS runs the same
-  # chrome now (ADR 0017). It is because these journeys record, and a macOS
-  # runner has no Screen Recording permission, so avfoundation cannot open the
-  # display there. The macOS job checks what it can — that the binary comes up,
-  # places its window and reports a capture rect — and stops short of pressing
-  # Record, rather than pressing it and reporting a permission denial as a
-  # product failure.
+  # chrome now (ADR 0017). It is because these journeys record and a macOS runner
+  # cannot — measured in the macOS job, where ffmpeg exits 251 on the
+  # avfoundation input and the device list comes back empty.
+  #
+  # Not for want of permission, which is the explanation that reads well and is
+  # wrong: the runner reports Screen Recording as GRANTED. It has no screen
+  # device. Two different failures, and only one of them would be fixed by
+  # someone clicking a dialog.
+  #
+  # So the macOS job checks what it can — the binary comes up, places its window,
+  # reports a capture rect, and its rect follows the window — and stops short of
+  # pressing Record rather than reporting an absent device as a product failure.
   journeys:
     name: User journeys
     needs: changes
