@@ -16,6 +16,7 @@ use std::rc::Rc;
 use glimpse_ui::{Chrome, Hole, PlatformHooks};
 
 use crate::grab::AvfCapture;
+use crate::permission;
 use crate::stop::StopPaths;
 use crate::window::{capture_rect_of, set_passthrough, window_nswindow};
 
@@ -52,7 +53,23 @@ pub fn build(app: &gtk::Application, stop: StopPaths) -> Rc<Chrome> {
                 // the screen index is found, and it sits BEHIND the cameras, so
                 // the index is not a constant and can move when a camera is
                 // plugged in mid-session.
-                grab: Box::new(|req| Ok(AvfCapture::discover()?.grab(req))),
+                //
+                // The permission is checked FIRST, and asked of the system
+                // rather than inferred. Without it the first sign of a refusal
+                // is ffmpeg failing to open the device, which reads as a bug in
+                // the app — `discover` does produce a message about it, but only
+                // by guessing from an empty device list, which is also what a
+                // genuinely missing device looks like.
+                //
+                // This is the moment a prompt belongs: the user has just asked
+                // to record. Prompting at start-up would throw a system dialog
+                // at someone for opening an application.
+                grab: Box::new(|req| {
+                    if !permission::granted() && !permission::request() {
+                        anyhow::bail!("{}", permission::explain());
+                    }
+                    Ok(AvfCapture::discover()?.grab(req))
+                }),
 
                 // Nothing to re-punch. X11 recomputes its input region on every
                 // geometry change because its hole is a region of a window that
@@ -117,6 +134,15 @@ pub fn build(app: &gtk::Application, stop: StopPaths) -> Rc<Chrome> {
 /// itself and the fact that it was derived rather than remembered.
 fn diagnostics(window: &gtk::ApplicationWindow, hole: &gtk::Box) -> String {
     let mut out = String::from("window model : one window, click-through is a mode (ADR 0017)\n");
+    // Preflight, not request: a report must not prompt.
+    out.push_str(&format!(
+        "screen record: {}\n",
+        if permission::granted() {
+            "permitted"
+        } else {
+            "NOT PERMITTED — recording will refuse"
+        }
+    ));
     match MainThreadMarker::new() {
         Some(mtm) => match capture_rect_of(window.upcast_ref(), hole, mtm) {
             Ok(r) => out.push_str(&format!(

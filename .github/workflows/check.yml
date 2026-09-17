@@ -333,6 +333,22 @@ jobs:
           fi
           exit 0
 
+      # What does macOS actually say about the permission here?
+      #
+      # REPORTED, NOT ASSERTED, and it is the second time this exact assumption
+      # has had to be walked back. The first version of this step asserted the
+      # runner would report the permission as MISSING, on the reasoning that a
+      # runner has nobody to grant it. It fails: preflight comes back **granted**.
+      # What the runner does not have is a screen device — `-list_devices`
+      # returns an I/O error and an empty list, which the step above measures.
+      #
+      # So "CI cannot record" is true for a reason that is not permission, and
+      # the refusal path in `glimpse_macos::permission` stays unreachable here.
+      # It is exercised by its unit tests and by a machine where the grant is
+      # genuinely absent, not by this.
+      - name: What macOS says about Screen Recording permission
+        run: cargo run --locked -p glimpse-macos --example permission_probe
+
       # The macOS half of the journeys, or as much of it as a runner can hold.
       #
       # The five user journeys all RECORD, and the step above measures that this
@@ -362,12 +378,18 @@ jobs:
   # UI is wired to that policy.
   #
   # X11 only, and no longer because it is the only frontend: macOS runs the same
-  # chrome now (ADR 0017). It is because these journeys record, and a macOS
-  # runner has no Screen Recording permission, so avfoundation cannot open the
-  # display there. The macOS job checks what it can — that the binary comes up,
-  # places its window and reports a capture rect — and stops short of pressing
-  # Record, rather than pressing it and reporting a permission denial as a
-  # product failure.
+  # chrome now (ADR 0017). It is because these journeys record and a macOS runner
+  # cannot — measured in the macOS job, where ffmpeg exits 251 on the
+  # avfoundation input and the device list comes back empty.
+  #
+  # Not for want of permission, which is the explanation that reads well and is
+  # wrong: the runner reports Screen Recording as GRANTED. It has no screen
+  # device. Two different failures, and only one of them would be fixed by
+  # someone clicking a dialog.
+  #
+  # So the macOS job checks what it can — the binary comes up, places its window,
+  # reports a capture rect, and its rect follows the window — and stops short of
+  # pressing Record rather than reporting an absent device as a product failure.
   journeys:
     name: User journeys
     needs: changes

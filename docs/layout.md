@@ -37,6 +37,7 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/window.rs         Reaching through GTK to the NSWindow; placement, passthrough
   src/shortcut.rs       Parsing a key combination. Toolkit-free, so Linux CI tests it
   src/hotkey.rs         Registering it with Carbon, which needs no permission
+  src/permission.rs     Ask macOS if we may record, before trying to
   src/bundle.rs         Point GTK at the .app's own schemas and icons, if there is one
   src/stop.rs           What can stop a recording, reported only once it is installed
   src/menubar.rs        The menu bar item: reachable when the window is not
@@ -45,6 +46,7 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   examples/record.rs    Record a fixed region end to end, no window involved
   examples/capture_rect_follows.rs     The rect tracks the window; it is not cached
   examples/menubar_probe.rs            Can a status item reach the bar without GTK?
+  examples/permission_probe.rs         What macOS says about Screen Recording here
   examples/one_window_hit_test.rs      Can one GTK window be click-through? (ADR 0017)
   examples/click_through_blackboard.rs Clicks aimed at a hole, and what caught them
   examples/sharing_type_capture.rs     Does sharingType keep a window out of a grab?
