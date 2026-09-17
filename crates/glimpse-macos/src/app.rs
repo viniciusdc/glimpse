@@ -79,8 +79,16 @@ pub fn run() -> ExitCode {
         Rc::new(RefCell::new(None));
     let held_c = held.clone();
 
-    // Before anything can record. `Recorder` reaps its child on every exit path
-    // it controls, but none of those run on a signal — and off Linux there is no
+    // Before GTK, not merely before recording. GLib reads the data-directory
+    // variables once, early, so a bundle that sets them after `gtk::Application`
+    // exists has set them too late and will not find its own icons or schemas.
+    // No-op outside a bundle, which is every development build.
+    if let Some(found) = crate::bundle::configure() {
+        eprint!("glimpse: bundle {found}");
+    }
+
+    // `Recorder` reaps its child on every exit path it controls, but none of
+    // those run on a signal — and off Linux there is no
     // `PR_SET_PDEATHSIG` to take ffmpeg down with us, so `Ctrl-C` alone would
     // leave it recording forever and holding the screen capture device. Issue
     // #45 is what that costs the *next* recording.

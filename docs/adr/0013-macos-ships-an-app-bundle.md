@@ -1,7 +1,8 @@
 # 0013 — macOS ships an `.app` bundle
 
-- **Status:** ACCEPTED. The dylib handling was unverified when this was written
-  and has since been measured — see "The dylib handling, measured".
+- **Status:** ACCEPTED. The dylib handling was unverified when this was written,
+  has since been measured, and is now built — see "The dylib handling, measured"
+  and "Two things the dylib work does not cover".
 - **Date:** 2026-08-28
 - **Relates to:** [ADR 0011](0011-why-the-macos-frame-is-more-than-one-window.md)
 
@@ -128,8 +129,50 @@ recorded because finding X11 libraries inside a macOS app bundle looks like a
 misconfiguration, and the next person should be able to confirm it is not one
 without re-deriving the trace.
 
-**What is still unverified** is that rewriting all 39 install names actually
-produces a working bundle. That needs a bundle to exist.
+## Two things the dylib work does not cover, found by building it
+
+`scripts/bundle-macos.sh` builds the bundle and refuses to finish unless it
+works. Two requirements surfaced that nothing above predicts, and both fail in
+ways that give you almost nothing to go on.
+
+**Every rewritten Mach-O has to be re-signed, and this is not about Gatekeeper.**
+Homebrew ships arm64 dylibs with an ad-hoc signature. `install_name_tool` edits
+the load commands, which invalidates it, and the kernel then refuses to map the
+image at all. The first build of the script produced a bundle whose `--version`
+exited **137** — SIGKILL — having printed nothing at all: no dyld error, no
+diagnostic, no clue. `codesign --force --sign -` on each dylib and on the binary
+fixes it, costs nothing and needs no Apple Developer account. It satisfies the
+kernel; it does not satisfy Gatekeeper, which remains the separate cost this
+record already describes.
+
+**A GTK application is not only its libraries.** The compiled GSettings schemas
+and the icon theme are found through `XDG_DATA_DIRS` and through glib's
+compiled-in default directory — and glib's default is the prefix it was *built*
+with, `/opt/homebrew/share`. So a bundle carrying all 39 dylibs and none of this
+runs perfectly on the machine that built it and cannot find its icons anywhere
+else. `otool` cannot see the problem, because none of it is a library.
+
+The files are copied in by the build script, and `glimpse_macos::bundle` points
+GLib at them at start-up — from the app rather than from the script, because a
+bundle can be dragged anywhere and the path cannot be baked in. It must run
+before GTK: GLib reads those variables once, early, and setting them afterwards
+is silent failure.
+
+Also worth knowing: Homebrew does not link `adwaita-icon-theme` into the main
+prefix, so looking for the theme in `$(brew --prefix)/share/icons` finds only
+`hicolor` and concludes it is absent. Ask `brew --prefix adwaita-icon-theme`.
+
+~~**What is still unverified** is that rewriting all 39 install names actually
+produces a working bundle.~~ **Answered.** It does, once they are re-signed. The
+bundle loads 39 dylibs from its own `Frameworks` and none from Homebrew,
+measured with `DYLD_PRINT_LIBRARIES`, and starts and reports a capture rect.
+`scripts/bundle-macos.sh` checks both on every build.
+
+What is unverified *now* is narrower and needs a different machine: that the
+bundle runs somewhere Homebrew was never installed. Nothing here can prove that,
+because this machine has Homebrew and glib falls back to its build prefix. That
+belongs to [issue #13](https://github.com/viniciusdc/glimpse/issues/13), where CI
+builds the artifact.
 
 ## What would falsify this
 

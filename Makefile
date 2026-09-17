@@ -116,6 +116,13 @@ journeys: smoke ## Every user journey off-screen, including the durability paths
 clickthrough: ## Click through the hole and check it lands (X11, off-screen)
 	@scripts/headless.sh scripts/clickthrough.sh
 
+.PHONY: bundle-macos
+# The shippable shape on macOS (ADR 0013). Self-verifying: it refuses to finish
+# unless no Homebrew path survives in the bundle and the app it just built comes
+# up and reports a capture rect.
+bundle-macos: ## Build target/Glimpse.app, dylibs and all
+	@scripts/bundle-macos.sh
+
 .PHONY: journeys-macos
 # The same journeys `make journeys` runs, on the frontend that cannot run them
 # off-screen. There is no Xvfb on macOS, so this uses YOUR screen — and it

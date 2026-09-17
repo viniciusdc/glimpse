@@ -37,6 +37,7 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/window.rs         Reaching through GTK to the NSWindow; placement, passthrough
   src/shortcut.rs       Parsing a key combination. Toolkit-free, so Linux CI tests it
   src/hotkey.rs         Registering it with Carbon, which needs no permission
+  src/bundle.rs         Point GTK at the .app's own schemas and icons, if there is one
   src/stop.rs           What can stop a recording, reported only once it is installed
   src/menubar.rs        The menu bar item: reachable when the window is not
   src/ui.rs             macOS's window model: one window, click-through as a mode
@@ -73,6 +74,7 @@ scripts/
   check-links-external.sh  External links in the docs; only a 404 fails
   screenshot.sh         Photographs the UI off-screen, because nothing else looks at it
   shot-macos.sh         The same on macOS, where off-screen does not exist; always closes the app
+  bundle-macos.sh       Build Glimpse.app: dylibs, signatures, identity. Verifies itself
   install.sh            Installs a release, refusing anything that fails its checksum
   make-demo.py          Draws the README animation, frame by frame
   sync-docs.sh          Regenerates the ADR index; fails the build on doc drift
