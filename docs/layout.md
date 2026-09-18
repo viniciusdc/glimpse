@@ -35,6 +35,7 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/grab.rs           Rect → avfoundation arguments, and the screen device lookup
   src/geometry.rs       The AppKit → capture-rect flip. No AppKit, so tested everywhere
   src/window.rs         Reaching through GTK to the NSWindow; placement, passthrough
+  src/screens.rs        Refuses a frame on a second display rather than guessing
   src/shortcut.rs       Parsing a key combination. Toolkit-free, so Linux CI tests it
   src/hotkey.rs         Registering it with Carbon, which needs no permission
   src/permission.rs     Ask macOS if we may record, before trying to

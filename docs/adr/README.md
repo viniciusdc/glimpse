@@ -29,4 +29,5 @@ replacing it.
   - [0015](0015-the-frame-is-two-windows.md) — The frame is two windows, and one of them takes no clicks
   - [0016](0016-the-chrome-is-above-and-below.md) — The macOS chrome is above *and* below the frame
   - [0017](0017-click-through-is-a-mode-not-a-window.md) — Click-through is a mode, not a window
+  - [0018](0018-multi-display-is-refused-not-guessed.md) — Multi-display on macOS is refused, not guessed
 <!-- END GENERATED adr-index -->

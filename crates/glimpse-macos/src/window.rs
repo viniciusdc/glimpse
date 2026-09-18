@@ -219,6 +219,18 @@ pub fn capture_rect_of(
     hole: &gtk::Box,
     mtm: MainThreadMarker,
 ) -> Result<ScreenPixelRect> {
+    capture_rect(hole_appkit_rect(window, hole)?, mtm)
+}
+
+/// Where the hole is, in AppKit's own coordinates, before any conversion.
+///
+/// Split out from [`capture_rect_of`] because two callers need different halves:
+/// the recorder wants device pixels, and
+/// [`crate::screens::ensure_capturable`] wants to compare against a screen's
+/// frame — which is in points. Converting first and comparing after would mean
+/// comparing device pixels against points, and on a 2x display that is wrong by
+/// a factor of two in a way that still looks like a rectangle.
+pub fn hole_appkit_rect(window: &gtk::Window, hole: &gtk::Box) -> Result<AppKitRect> {
     let b = hole
         .compute_bounds(window)
         .ok_or_else(|| anyhow!("the hole has no bounds yet — not laid out"))?;
@@ -229,17 +241,14 @@ pub fn capture_rect_of(
     let (tx, ty) = window.surface_transform();
     let ns = window_nswindow(window)?;
     let f = appkit_frame(&ns);
-    capture_rect(
-        AppKitRect {
-            x: f.x + b.x() as f64 + tx,
-            // Widget y counts down from the window's top; AppKit counts up from
-            // the screen's bottom. One flip, here.
-            y: f.y + f.h - (b.y() as f64 + ty) - b.height() as f64,
-            w: b.width() as f64,
-            h: b.height() as f64,
-        },
-        mtm,
-    )
+    Ok(AppKitRect {
+        x: f.x + b.x() as f64 + tx,
+        // Widget y counts down from the window's top; AppKit counts up from
+        // the screen's bottom. One flip, here.
+        y: f.y + f.h - (b.y() as f64 + ty) - b.height() as f64,
+        w: b.width() as f64,
+        h: b.height() as f64,
+    })
 }
 
 /// The AppKit frame of a window, as the flip expects it.
