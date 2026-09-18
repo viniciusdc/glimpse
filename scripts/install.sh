@@ -65,10 +65,37 @@ else
 fi
 
 # ---------------------------------------------------------------- platform --
+#
+# The two platforms ship different SHAPES. Linux is a bare binary in a tarball,
+# because GTK comes from the distribution and a binary on the PATH is what the
+# platform expects. macOS is an .app bundle in a zip carrying its own GTK,
+# because Screen Recording permission attaches to an application identity and a
+# bare binary has none — see docs/adr/0013.
+#
+# The names below must match what .github/workflows/release.yml writes, and
+# nothing in either file can see the other. `scripts/check-release-names.sh`
+# asserts they agree, and `make check` runs it.
 os=$(uname -s)
 arch=$(uname -m)
-[ "$os" = "Linux" ] || die "Glimpse is Linux-only (found $os). It is an X11 application by design; see docs/faq.md"
-[ "$arch" = "x86_64" ] || die "no published binary for $arch (only x86_64). Build from source: https://github.com/$REPO"
+case "$os:$arch" in
+  Linux:x86_64)
+    platform="linux-x86_64"
+    ext="tar.gz"
+    ;;
+  Darwin:arm64)
+    platform="macos-arm64"
+    ext="zip"
+    ;;
+  Linux:*)
+    die "no published binary for $arch on Linux (only x86_64). Build from source: https://github.com/$REPO"
+    ;;
+  Darwin:*)
+    die "no published bundle for $arch on macOS (only arm64/Apple Silicon). Build from source: https://github.com/$REPO"
+    ;;
+  *)
+    die "no published build for $os. Linux/X11 and macOS are supported; see docs/faq.md"
+    ;;
+esac
 
 # ------------------------------------------------------------------ version --
 if [ "$GLIMPSE_VERSION" = "latest" ]; then
@@ -79,7 +106,7 @@ if [ "$GLIMPSE_VERSION" = "latest" ]; then
   [ -n "$GLIMPSE_VERSION" ] || die "could not determine the latest release; pass GLIMPSE_VERSION=vX.Y.Z"
 fi
 
-archive="${BIN}-${GLIMPSE_VERSION}-linux-x86_64.tar.gz"
+archive="${BIN}-${GLIMPSE_VERSION}-${platform}.${ext}"
 base="https://github.com/$REPO/releases/download/$GLIMPSE_VERSION"
 
 tmp=$(mktemp -d) || die "could not create a temporary directory"
@@ -105,40 +132,77 @@ fi
 say "checksum verified"
 
 # ------------------------------------------------------------------ extract --
-# Into the temporary directory, then copy out only the file expected by name —
-# so nothing in the archive decides where anything lands.
-tar -xzf "$tmp/$archive" -C "$tmp"
-extracted="$tmp/${BIN}-${GLIMPSE_VERSION}-linux-x86_64/$BIN"
-[ -f "$extracted" ] || die "the archive did not contain $BIN where expected"
+# Into the temporary directory, then copy out only what is expected by name — so
+# nothing in the archive decides where anything lands.
+unpacked="$tmp/${BIN}-${GLIMPSE_VERSION}-${platform}"
 
-mkdir -p "$INSTALL_DIR"
-install -m 0755 "$extracted" "$INSTALL_DIR/$BIN"
-say "installed $INSTALL_DIR/$BIN"
+if [ "$ext" = "zip" ]; then
+  command -v unzip >/dev/null 2>&1 || die "unzip is not available"
+  unzip -q "$tmp/$archive" -d "$tmp"
+else
+  tar -xzf "$tmp/$archive" -C "$tmp"
+fi
 
-# A desktop entry, if the archive carried one and there is somewhere to put it.
-desktop="$tmp/${BIN}-${GLIMPSE_VERSION}-linux-x86_64/${BIN}.desktop"
-apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-if [ -f "$desktop" ]; then
-  mkdir -p "$apps"
-  install -m 0644 "$desktop" "$apps/${BIN}.desktop"
-  say "installed $apps/${BIN}.desktop"
+if [ "$os" = "Darwin" ]; then
+  # An .app goes to /Applications, not onto the PATH. Launching it from Finder
+  # is the whole point: that is what gives Screen Recording permission something
+  # to attach to that is not the terminal.
+  app="$unpacked/Glimpse.app"
+  [ -d "$app" ] || die "the archive did not contain Glimpse.app where expected"
+  dest="${GLIMPSE_APP_DIR:-$HOME/Applications}"
+  mkdir -p "$dest"
+  # Replaced rather than merged: an old bundle's leftover dylibs beside a new
+  # one's is a combination nobody has ever run.
+  rm -rf "$dest/Glimpse.app"
+  cp -R "$app" "$dest/Glimpse.app"
+  say "installed $dest/Glimpse.app"
+else
+  extracted="$unpacked/$BIN"
+  [ -f "$extracted" ] || die "the archive did not contain $BIN where expected"
+
+  mkdir -p "$INSTALL_DIR"
+  install -m 0755 "$extracted" "$INSTALL_DIR/$BIN"
+  say "installed $INSTALL_DIR/$BIN"
+
+  # A desktop entry, if the archive carried one and there is somewhere to put it.
+  desktop="$unpacked/${BIN}.desktop"
+  apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+  if [ -f "$desktop" ]; then
+    mkdir -p "$apps"
+    install -m 0644 "$desktop" "$apps/${BIN}.desktop"
+    say "installed $apps/${BIN}.desktop"
+  fi
 fi
 
 # ------------------------------------------------------- runtime complaints --
 # Better to say what is missing now than to let it fail confusingly at launch.
 missing=""
-[ "${XDG_SESSION_TYPE:-}" = "wayland" ] && missing="$missing\n  - you are on Wayland; Glimpse needs an X11 session and will refuse to start"
 command -v ffmpeg >/dev/null 2>&1 || missing="$missing\n  - ffmpeg is not installed; recording will not work without it"
-pkg-config --exists gtk4 2>/dev/null || ldconfig -p 2>/dev/null | grep -q libgtk-4 \
-  || missing="$missing\n  - GTK 4 does not appear to be installed"
-case ":$PATH:" in
-  *":$INSTALL_DIR:"*) ;;
-  *) missing="$missing\n  - $INSTALL_DIR is not on your PATH" ;;
-esac
+
+if [ "$os" = "Darwin" ]; then
+  # GTK is inside the bundle, so it is not worth checking for. What is worth
+  # saying is the thing nobody guesses: the permission attaches to whatever
+  # launched the program, so opening it from Finder is not optional advice.
+  missing="$missing\n  - open it from Finder at least once: Screen Recording permission attaches to"
+  missing="$missing\n    the application that asks, and launching the binary from a terminal grants"
+  missing="$missing\n    it to the terminal instead"
+else
+  [ "${XDG_SESSION_TYPE:-}" = "wayland" ] && missing="$missing\n  - you are on Wayland; Glimpse needs an X11 session and will refuse to start"
+  pkg-config --exists gtk4 2>/dev/null || ldconfig -p 2>/dev/null | grep -q libgtk-4 \
+    || missing="$missing\n  - GTK 4 does not appear to be installed"
+  case ":$PATH:" in
+    *":$INSTALL_DIR:"*) ;;
+    *) missing="$missing\n  - $INSTALL_DIR is not on your PATH" ;;
+  esac
+fi
 
 if [ -n "$missing" ]; then
   printf '\n\033[33mbefore it will run:\033[0m'
   printf "$missing\n"
 fi
 
-printf '\n%s %s installed. Run: %s\n' "$BIN" "$GLIMPSE_VERSION" "$BIN"
+if [ "$os" = "Darwin" ]; then
+  printf '\n%s %s installed. Open Glimpse from Finder.\n' "$BIN" "$GLIMPSE_VERSION"
+else
+  printf '\n%s %s installed. Run: %s\n' "$BIN" "$GLIMPSE_VERSION" "$BIN"
+fi

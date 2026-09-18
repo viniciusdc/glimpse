@@ -1,8 +1,25 @@
 # Releasing
 
-A release is one Linux x86_64 tarball attached to a GitHub release, plus its
-checksum. There is no macOS or Windows build and there will not be — see the
+A release is two artifacts attached to a GitHub release, each with its checksum:
+
+| platform | artifact | shape |
+|---|---|---|
+| Linux x86_64 | `glimpse-<version>-linux-x86_64.tar.gz` | a bare binary |
+| macOS arm64 | `glimpse-<version>-macos-arm64.zip` | `Glimpse.app` |
+
+They are different shapes on purpose. GTK comes from the distribution on Linux
+and a binary on the PATH is what that platform expects; macOS carries its own GTK
+inside a bundle, because Screen Recording permission attaches to an application
+identity and a bare binary has none ([ADR 0013](adr/0013-macos-ships-an-app-bundle.md)).
+
+There is no Windows build. Nobody has measured anything there, so read its
+absence as unexamined rather than settled — see the
 [FAQ](faq.md#are-there-macos-or-windows-builds).
+
+The macOS bundle is **ad-hoc signed, not notarized**. Downloaded through a
+browser it is quarantined and macOS calls it damaged; fetched with `curl`, as
+`install.sh` does, it is not. That asymmetry is a trap for whoever writes the
+install instructions, and it is recorded rather than solved.
 
 ## Before you tag
 
@@ -65,12 +82,25 @@ curl -fsSL https://raw.githubusercontent.com/viniciusdc/glimpse/main/scripts/ins
 /tmp/verify/glimpse --version      # must print 0.2.0
 ```
 
+On macOS the installer puts `Glimpse.app` in `~/Applications` rather than a
+binary on the PATH, so verify it there — and **open it from Finder at least
+once**, because that is what gives Screen Recording permission something to
+attach to that is not your terminal.
+
 That exercises the same path a stranger takes, including the checksum
-verification, and catches the failure mode that matters most here: the installer
-and the release workflow disagreeing about what the archive is called. They agree
-today — `scripts/install.sh` builds the same name `release.yml` writes — but
-nothing enforces it, so **changing the archive name in one file breaks installs
-until the other is changed too.**
+verification.
+
+The failure mode it used to be the only guard against — the installer and the
+release workflow disagreeing about what an archive is called — now fails the
+build instead. `scripts/check-release-names.sh` asserts that both files name the
+same platforms with the same extensions and build the name the same way, and
+`make check` runs it. Adding macOS turned one such coupling into four, which is
+what finally made an assertion cheaper than the prose warning that used to be
+here.
+
+What that check *cannot* tell you is whether the names are right — only that the
+two files agree. Both being wrong together still passes, and the only cure is the
+download above.
 
 ## Versioning
 

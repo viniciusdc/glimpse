@@ -56,7 +56,7 @@ help: ## List the development commands
 	  | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: check
-check: fmt-check lint test docs-check check-journeys ## The gates CI runs, fastest-failing first
+check: fmt-check lint test docs-check check-journeys check-release-names ## The gates CI runs, fastest-failing first
 
 .PHONY: build
 build: ## Debug build
@@ -130,6 +130,14 @@ bundle-macos: ## Build target/Glimpse.app, dylibs and all
 # and avfoundation would fail for a reason that is not a product bug.
 journeys-macos: ## Every user journey on macOS, on your real screen
 	@scripts/journeys-macos.sh
+
+.PHONY: check-release-names
+# install.sh constructs the archive name release.yml writes, and neither file can
+# see the other. docs/releasing.md flagged that coupling while there was one
+# platform; macOS turned it into four. The fix it asks for is an assertion, not a
+# second hardcoded string.
+check-release-names: ## Fail if the installer and the release workflow disagree
+	@scripts/check-release-names.sh
 
 .PHONY: check-journeys
 check-journeys: ## Fail if a journey exists that nothing drives

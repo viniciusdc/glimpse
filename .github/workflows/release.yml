@@ -9,14 +9,23 @@ on:
         description: Tag to build
         required: true
 
-# Only Linux is built, and that is not an oversight.
+# Linux and macOS. Windows is not built, and that is not an oversight.
 #
-# Glimpse is an X11 application by design rather than by omission: it works by
-# being a window that knows its own position on screen and declares its own
-# capture rectangle, which is a thing Wayland's portal model and both macOS and
-# Windows deliberately do not allow. It also links gdk4-x11 and x11rb and shells
-# out to ffmpeg's x11grab. A macOS or Windows target would not be a port; it
-# would be a different application. See docs/adr/0002 and docs/adr/0006.
+# This comment used to say only Linux was built, reasoning that Glimpse works by
+# being a window that knows its own position and declares its own capture
+# rectangle, and that macOS does not allow it. The second half was measured and
+# is false — see docs/adr/0011 for the correction and docs/adr/0017 for the
+# window model it settled on. macOS records through the same chrome Linux runs.
+#
+# Windows stays untouched. Nobody has measured anything there, so read its
+# absence as unexamined rather than settled, which is exactly the mistake this
+# comment used to make about macOS.
+#
+# The two platforms ship different SHAPES, not the same artifact twice. Linux is
+# a bare binary in a tarball: GTK comes from the distribution and a binary on the
+# PATH is what the platform expects. macOS is an .app bundle carrying its own GTK
+# dylibs, because Screen Recording permission attaches to an application identity
+# and a bare binary has none (docs/adr/0013).
 
 # Third-party actions are pinned to commit SHAs rather than tags. A tag is
 # mutable: whoever controls the action can repoint v7 at new code, and it runs
@@ -80,9 +89,105 @@ jobs:
           files: |
             *.tar.gz
             *.tar.gz.sha256
-          body: |
-            Linux x86_64 only — Glimpse is an X11 application by design, not by
-            omission. See `docs/adr/0002` for why a macOS or Windows build would
-            be a different application rather than a port.
 
-            Requires an X11 session, GTK4 >= 4.10 and ffmpeg at runtime.
+  macos:
+    name: macOS arm64
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install GTK4, ffmpeg and the icon theme
+        run: |
+          brew install gtk4 ffmpeg pkgconf adwaita-icon-theme
+
+      # Same check the Linux job makes, and for the same reason: an artifact
+      # named one thing built from a crate that calls itself another means
+      # `glimpse --version` contradicts the file the user downloaded.
+      - name: Tag must match the crate version
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          crate=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$tag" != "v$crate" ]; then
+            echo "::error::tag $tag does not match Cargo.toml version $crate (expected v$crate)"
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable, 2026-08
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # Everything except glimpse-x11, which cannot build against a Quartz GTK.
+      # The Linux job above covers that half.
+      - run: cargo test --locked --release -p glimpse-core -p glimpse-ui -p glimpse-macos -p glimpse
+
+      # Builds the bundle and refuses to finish unless no Homebrew path survives
+      # in it and the app it just built starts.
+      - name: Build the app bundle
+        run: make bundle-macos
+
+      # The check that matters for something people download: the artifact has
+      # to work where Homebrew was never installed, and that cannot be verified
+      # on any machine capable of building it. A runner is a throwaway VM, so it
+      # is verified by taking Homebrew away.
+      - name: The bundle runs with Homebrew taken away
+        run: |
+          set -u
+          BREW=$(brew --prefix)
+          restore() { [ -d "$BREW.hidden" ] && sudo mv "$BREW.hidden" "$BREW"; }
+          trap restore EXIT
+          sudo mv "$BREW" "$BREW.hidden"
+          log=$(mktemp)
+          ./target/Glimpse.app/Contents/MacOS/glimpse >"$log" 2>&1 &
+          pid=$!
+          for _ in $(seq 1 60); do
+            grep -q 'capture rect' "$log" && break
+            kill -0 $pid 2>/dev/null || break
+            sleep 0.5
+          done
+          kill $pid 2>/dev/null || true
+          restore
+          trap - EXIT
+          sed 's/^/  /' "$log"
+          grep -q 'capture rect' "$log" || {
+            echo '::error::the bundle is not relocatable; refusing to publish it'
+            exit 1
+          }
+
+      - name: Package
+        run: |
+          version="${{ inputs.tag || github.ref_name }}"
+          dir="glimpse-${version}-macos-arm64"
+          mkdir -p "$dir"
+          cp -R target/Glimpse.app "$dir/"
+          cp README.md LICENSE NOTICE "$dir/"
+          # zip, not tar: it is what macOS produces and consumes, and it
+          # preserves the symlinks and permissions inside a bundle.
+          ditto -c -k --sequesterRsrc --keepParent "$dir" "${dir}.zip"
+          shasum -a 256 "${dir}.zip" > "${dir}.zip.sha256"
+          ls -la *.zip*
+
+      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            *.zip
+            *.zip.sha256
+          body: |
+            **Linux x86_64** — a bare binary. Needs an X11 session, GTK4 >= 4.10
+            and ffmpeg.
+
+            **macOS arm64** — `Glimpse.app`, carrying its own GTK. Needs ffmpeg,
+            and Screen Recording permission, which macOS will ask for the first
+            time you record.
+
+            The macOS bundle is **ad-hoc signed, not notarized**. Downloaded
+            through a browser it is quarantined and macOS will say it is damaged;
+            fetched with `curl` or `scripts/install.sh` it is not. See
+            `docs/adr/0013`.
+
+            Windows is unexamined rather than refused.
+

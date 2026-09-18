@@ -71,30 +71,93 @@ cp target/release/glimpse "$CONTENTS/MacOS/glimpse"
 # ---- the transitive closure -------------------------------------------------
 #
 # Breadth-first over `otool -L`, because the direct list is a third of the real
-# answer. Kept in bash rather than a script language so the release path needs
-# nothing but the Xcode tools.
-deps_of() {
-  otool -L "$1" | tail -n +2 | awk '{print $1}' | grep "^$BREW_PREFIX" || true
+# answer.
+#
+# **Not every dependency is an absolute path.** An early version of this matched
+# only names beginning with the Homebrew prefix, which silently skipped
+# `@rpath/...` entries — and Homebrew's libwebp names `@rpath/libsharpyuv.0.dylib`
+# that way. The library was never copied, the reference was never rewritten, and
+# the bundle died on `dyld: Library not loaded` the first time it ran somewhere
+# that build had not been done. It did not fail on the machine that wrote this,
+# because that machine's gdk-pixbuf does not pull webp in at all: 39 dylibs here,
+# 40 on a CI runner. A closure that only understands one spelling of "depends on"
+# is a closure that is right until the next machine.
+#
+# So: take every dependency that is not part of the OS, resolve it — through
+# LC_RPATH and @loader_path if that is how it is written — and bundle whatever it
+# resolves to.
+
+# Dependencies worth bundling: everything except the OS's own, which are present
+# on any Mac and must NOT be copied.
+deps_raw() {
+  otool -L "$1" | tail -n +2 | awk '{print $1}' |
+    grep -v '^/usr/lib/' | grep -v '^/System/' || true
+}
+
+# The rpath entries a Mach-O carries, which is how `@rpath/...` is resolved.
+rpaths_of() {
+  otool -l "$1" | awk '/LC_RPATH/{want=1} want && $1=="path" {print $2; want=0}'
+}
+
+# A dependency string, turned into a real file on disk. Empty if it cannot be
+# resolved, which the caller treats as fatal rather than skipping: a dependency
+# nobody can find is the bug this function exists to stop shipping.
+resolve_dep() {
+  local dep="$1" owner="$2" dir base rp cand
+  dir=$(dirname "$owner")
+  case "$dep" in
+    @rpath/*)
+      base="${dep#@rpath/}"
+      while IFS= read -r rp; do
+        cand="${rp//@loader_path/$dir}"
+        cand="${cand//@executable_path/$dir}"
+        [ -f "$cand/$base" ] && { /usr/bin/python3 -c "import os,sys;print(os.path.realpath(sys.argv[1]))" "$cand/$base"; return; }
+      done < <(rpaths_of "$owner")
+      # Homebrew keeps everything under one prefix, so this is a sound last
+      # resort when a library names an rpath it does not itself carry.
+      [ -f "$BREW_PREFIX/lib/$base" ] && { /usr/bin/python3 -c "import os,sys;print(os.path.realpath(sys.argv[1]))" "$BREW_PREFIX/lib/$base"; return; }
+      ;;
+    @loader_path/*)
+      cand="${dep/@loader_path/$dir}"
+      [ -f "$cand" ] && /usr/bin/python3 -c "import os,sys;print(os.path.realpath(sys.argv[1]))" "$cand"
+      ;;
+    /*)
+      [ -f "$dep" ] && /usr/bin/python3 -c "import os,sys;print(os.path.realpath(sys.argv[1]))" "$dep"
+      ;;
+  esac
 }
 
 seen_file=$(mktemp -t glimpse-bundle-seen.XXXXXX)
 queue_file=$(mktemp -t glimpse-bundle-queue.XXXXXX)
 trap 'rm -f "$seen_file" "$queue_file"' EXIT
-deps_of "$CONTENTS/MacOS/glimpse" > "$queue_file"
+
+# The queue carries "owner<TAB>dependency", because resolving `@rpath` needs to
+# know which library said it.
+while IFS= read -r d; do
+  printf '%s\t%s\n' "$CONTENTS/MacOS/glimpse" "$d" >> "$queue_file"
+done < <(deps_raw "$CONTENTS/MacOS/glimpse")
 
 while [ -s "$queue_file" ]; do
-  lib=$(head -1 "$queue_file")
+  line=$(head -1 "$queue_file")
   sed -i '' '1d' "$queue_file"
-  # Resolve symlinks: Homebrew's opt/ paths point into Cellar, and copying the
-  # link target once under its real name keeps one copy per library.
-  real=$(/usr/bin/python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$lib" 2>/dev/null || echo "$lib")
+  owner="${line%%	*}"
+  dep="${line#*	}"
+
+  real=$(resolve_dep "$dep" "$owner")
+  if [ -z "$real" ]; then
+    echo "bundle-macos: cannot resolve '$dep' needed by $(basename "$owner")" >&2
+    echo "  A dependency nobody can find is the bug this check exists to stop shipping." >&2
+    exit 1
+  fi
+
   base=$(basename "$real")
   grep -qx "$base" "$seen_file" 2>/dev/null && continue
-  [ -f "$real" ] || { echo "bundle-macos: missing $lib" >&2; exit 1; }
   echo "$base" >> "$seen_file"
   cp "$real" "$FRAMEWORKS/$base"
   chmod u+w "$FRAMEWORKS/$base"
-  deps_of "$real" >> "$queue_file"
+  while IFS= read -r d; do
+    printf '%s\t%s\n' "$real" "$d" >> "$queue_file"
+  done < <(deps_raw "$real")
 done
 
 count=$(wc -l < "$seen_file" | tr -d ' ')
@@ -106,20 +169,20 @@ echo "bundle-macos: bundled $count dylibs ($size)"
 # Two rewrites per library: its own id, and every dependency it names. Missing
 # either leaves a dylib that resolves through Homebrew on the build machine and
 # fails on anyone else's, which is the failure mode that looks like success.
+#
+# Rewriting is keyed on the ORIGINAL dependency string, whatever its spelling,
+# and points at the basename the copy was made under.
 rewrite() {
-  local file="$1"
-  local dep base
+  local file="$1" dep real base
   while IFS= read -r dep; do
-    base=$(basename "$dep")
-    # The basename of the SYMLINK may differ from the file we copied, which is
-    # named after its link target. Map through the same realpath the copy used.
-    local realbase
-    realbase=$(basename "$(/usr/bin/python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$dep" 2>/dev/null || echo "$dep")")
-    install_name_tool -change "$dep" "@executable_path/../Frameworks/$realbase" "$file" 2>/dev/null || {
-      echo "bundle-macos: could not rewrite $base in $(basename "$file")" >&2
+    real=$(resolve_dep "$dep" "$file")
+    [ -z "$real" ] && continue
+    base=$(basename "$real")
+    install_name_tool -change "$dep" "@executable_path/../Frameworks/$base" "$file" 2>/dev/null || {
+      echo "bundle-macos: could not rewrite $dep in $(basename "$file")" >&2
       exit 1
     }
-  done < <(deps_of "$file")
+  done < <(deps_raw "$file")
 }
 
 rewrite "$CONTENTS/MacOS/glimpse"
@@ -219,12 +282,22 @@ PLIST
 #
 # A bundle that still names Homebrew works perfectly on the machine that built it
 # and nowhere else. Checking every Mach-O in the bundle, not just the binary.
-echo "bundle-macos: checking for surviving $BREW_PREFIX references"
+echo "bundle-macos: checking for surviving $BREW_PREFIX and @rpath references"
 leaked=0
 while IFS= read -r f; do
   if otool -L "$f" 2>/dev/null | tail -n +2 | grep -q "^	$BREW_PREFIX"; then
     echo "  LEAKED: $f" >&2
     otool -L "$f" | grep "$BREW_PREFIX" | sed 's/^/      /' >&2
+    leaked=1
+  fi
+  # An unresolved `@rpath/` is the same defect wearing a different spelling, and
+  # it is the one that shipped: libwebp names @rpath/libsharpyuv.0.dylib, the
+  # closure walk did not understand it, and the bundle died on `dyld: Library
+  # not loaded` the first time it ran on a machine that had not built it.
+  # Checking here turns that into a build failure naming the library.
+  if otool -L "$f" 2>/dev/null | tail -n +2 | grep -q "^	@rpath/"; then
+    echo "  UNRESOLVED @rpath: $f" >&2
+    otool -L "$f" | grep "@rpath/" | sed 's/^/      /' >&2
     leaked=1
   fi
 done < <(find "$APP" -type f \( -perm -u+x -o -name '*.dylib' \))
