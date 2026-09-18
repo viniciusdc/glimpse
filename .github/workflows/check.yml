@@ -349,6 +349,57 @@ jobs:
       - name: What macOS says about Screen Recording permission
         run: cargo run --locked -p glimpse-macos --example permission_probe
 
+      # The bundle, and the question a developer machine cannot answer.
+      #
+      # `scripts/bundle-macos.sh` already refuses to finish unless no Homebrew
+      # path survives in the bundle and the app it built starts. Both were true
+      # locally, and neither proves the thing that matters: that the bundle works
+      # on a machine where Homebrew was never installed. It cannot be proved
+      # there, because glib falls back to the prefix it was BUILT with and that
+      # prefix exists on any machine that could have built the bundle.
+      #
+      # A runner is a throwaway VM, so here it can be answered the direct way:
+      # take Homebrew away and see. ADR 0013 closed with this unverified and #11
+      # could only narrow it.
+      #
+      # Restored in the same step whatever happens, because later steps and the
+      # runner's own teardown expect /opt/homebrew to exist.
+      - name: Build the app bundle
+        run: make bundle-macos
+
+      - name: The bundle runs with Homebrew taken away
+        run: |
+          set -u
+          BREW=$(brew --prefix)
+          restore() { [ -d "$BREW.hidden" ] && sudo mv "$BREW.hidden" "$BREW"; }
+          trap restore EXIT
+
+          sudo mv "$BREW" "$BREW.hidden"
+          echo "hid $BREW"
+          ls "$BREW" 2>/dev/null && { echo '::error::hiding Homebrew did nothing'; exit 1; }
+
+          log=$(mktemp)
+          ./target/Glimpse.app/Contents/MacOS/glimpse >"$log" 2>&1 &
+          pid=$!
+          for _ in $(seq 1 60); do
+            grep -q 'capture rect' "$log" && break
+            kill -0 $pid 2>/dev/null || break
+            sleep 0.5
+          done
+          kill $pid 2>/dev/null || true
+          wait $pid 2>/dev/null || true
+
+          restore
+          trap - EXIT
+          echo "restored $BREW"
+
+          sed 's/^/  /' "$log"
+          if ! grep -q 'capture rect' "$log"; then
+            echo '::error::the bundle does not run without Homebrew — it is not relocatable'
+            exit 1
+          fi
+          echo 'the bundle is self-contained'
+
       # The macOS half of the journeys, or as much of it as a runner can hold.
       #
       # The five user journeys all RECORD, and the step above measures that this
