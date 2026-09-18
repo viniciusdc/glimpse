@@ -17,6 +17,7 @@ use glimpse_ui::{Chrome, Hole, PlatformHooks};
 
 use crate::grab::AvfCapture;
 use crate::permission;
+use crate::screens;
 use crate::stop::StopPaths;
 use crate::window::{capture_rect_of, set_passthrough, window_nswindow};
 
@@ -34,6 +35,7 @@ pub fn build(app: &gtk::Application, stop: StopPaths) -> Rc<Chrome> {
         move |window, hole| {
             let (w, h) = (window.clone(), hole.clone());
             let (dw, dh) = (w.clone(), h.clone());
+            let (gw, gh) = (w.clone(), h.clone());
             let pw = w.clone();
             PlatformHooks {
                 capture_rect: {
@@ -64,10 +66,18 @@ pub fn build(app: &gtk::Application, stop: StopPaths) -> Rc<Chrome> {
                 // This is the moment a prompt belongs: the user has just asked
                 // to record. Prompting at start-up would throw a system dialog
                 // at someone for opening an application.
-                grab: Box::new(|req| {
+                grab: Box::new(move |req| {
                     if !permission::granted() && !permission::request() {
                         anyhow::bail!("{}", permission::explain());
                     }
+                    // Refused rather than guessed: the scale factor and the
+                    // capture device are both per-screen, so a frame on another
+                    // display would record the main one's pixels at the right
+                    // size (ADR 0018).
+                    let mtm = MainThreadMarker::new()
+                        .ok_or_else(|| anyhow!("grab called off the main thread"))?;
+                    let rect = crate::window::hole_appkit_rect(gw.upcast_ref(), &gh)?;
+                    screens::ensure_capturable(rect, mtm)?;
                     Ok(AvfCapture::discover()?.grab(req))
                 }),
 
@@ -143,6 +153,9 @@ fn diagnostics(window: &gtk::ApplicationWindow, hole: &gtk::Box) -> String {
             "NOT PERMITTED — recording will refuse"
         }
     ));
+    if let Some(mtm) = MainThreadMarker::new() {
+        out.push_str(&screens::describe(mtm));
+    }
     match MainThreadMarker::new() {
         Some(mtm) => match capture_rect_of(window.upcast_ref(), hole, mtm) {
             Ok(r) => out.push_str(&format!(
