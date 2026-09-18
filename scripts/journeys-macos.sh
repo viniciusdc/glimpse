@@ -7,8 +7,7 @@
 #
 # WHY THIS EXISTS. `make journeys` drives all five through `smoke.sh`, which runs
 # them under `headless.sh` — Xvfb, X11 only. macOS therefore ran **no journeys at
-# all**: its CI job checks that the binary comes up and reports a capture rect,
-# and stops there. Everything past that point — Record actually recording, Stop
+# all**. Everything past the window coming up — Record actually recording, Stop
 # actually stopping, cancel preserving the capture, retry re-encoding it — was
 # verified on one platform and asserted on the other.
 #
@@ -26,6 +25,11 @@
 #
 # That step is not decoration: if a future runner image can capture, it says so,
 # and this file should start running there.
+#
+# WHAT CI DOES INSTEAD. `scripts/record-hygiene.sh` presses Record on the runner
+# and asserts only what is true whichever way the attempt goes — a terminal
+# state, an exit, no surviving ffmpeg, no workspace left behind. It has no
+# verdict about pixels, which is exactly why it can run where these cannot.
 #
 # WHY IT USES YOUR SCREEN. There is no Xvfb on macOS. The journeys put a window
 # up, record a region of your desktop and write a file. AGENTS.md says not to run
