@@ -18,6 +18,12 @@
 //! decides to refuse that rather than guess at it. A rectangle that is the right
 //! size on the wrong pixels is the failure
 //! [ADR 0000](../../docs/adr/0000-x11-framing-window-spike.md) exists to record.
+//!
+//! **macOS-gated, unlike [`crate::shortcut`].** This needs `NSScreen`, so it
+//! cannot live in the half of the crate Linux CI compiles — which is how it was
+//! first written, and Linux caught it immediately with an unresolved import. The
+//! split is the manifest's: AppKit dependencies are in a target table, so
+//! anything naming them has to be gated to match.
 
 use anyhow::{anyhow, Result};
 use objc2_app_kit::NSScreen;

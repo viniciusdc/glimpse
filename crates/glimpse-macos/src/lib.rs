@@ -19,7 +19,6 @@
 
 pub mod geometry;
 pub mod grab;
-pub mod screens;
 pub mod shortcut;
 pub mod stop;
 
@@ -33,6 +32,8 @@ pub mod hotkey;
 pub mod menubar;
 #[cfg(target_os = "macos")]
 pub mod permission;
+#[cfg(target_os = "macos")]
+pub mod screens;
 #[cfg(target_os = "macos")]
 pub mod ui;
 #[cfg(target_os = "macos")]
