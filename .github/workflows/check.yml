@@ -201,6 +201,12 @@ jobs:
           command -v ffmpeg      >/dev/null || need+=(ffmpeg)
           command -v pkg-config  >/dev/null || need+=(pkgconf)
           pkg-config --exists gtk4 2>/dev/null || need+=(gtk4)
+          # Not a build dependency — a BUNDLE dependency. GTK finds the header's
+          # symbolic icons through the icon theme, Homebrew does not install it
+          # with gtk4, and a bundle built without it renders its chrome blank.
+          # The runner had none, which `bundle-macos.sh` warned about and CI
+          # would otherwise have shipped.
+          [ -d "$(brew --prefix)/opt/adwaita-icon-theme" ] || need+=(adwaita-icon-theme)
           if [ ${#need[@]} -eq 0 ]; then
             echo "nothing to install"
           else
