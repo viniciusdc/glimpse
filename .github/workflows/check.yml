@@ -424,6 +424,34 @@ jobs:
       - name: The capture rect follows the window
         run: cargo run --locked -p glimpse-macos --example capture_rect_follows
 
+      # Press Record for real, and check what the attempt leaves behind.
+      #
+      # The step above stops short of pressing it, because the verdict of a
+      # journey depends on a screen this runner does not have. But the button
+      # itself can be pressed here, and the things worth asserting about what
+      # follows do NOT depend on which way it goes:
+      #
+      #   the session reaches a terminal state rather than sitting in Recording
+      #   the app exits rather than hanging
+      #   no ffmpeg survives it
+      #   no workspace is left in the temp directory
+      #
+      # On a developer machine the recording succeeds and all four hold. Here it
+      # fails for want of a device and all four hold too. That is the whole
+      # reason this one can run in CI when the journeys cannot: it does not have
+      # a verdict that varies by machine.
+      #
+      # This is issue #45 itemised. An orphaned ffmpeg held the capture device
+      # and broke the NEXT recording, the UI sat in Stopping, and workspaces
+      # accumulated 28 deep — every symptom is one of the four lines, and none of
+      # them was covered by anything on macOS. The failure path it exercises here
+      # is the one a user with permission denied takes, which no journey reaches.
+      #
+      # The release binary, not a second debug build: this is the slowest job in
+      # the workflow already.
+      - name: Pressing Record leaves nothing behind
+        run: GLIMPSE_BIN=./target/release/glimpse scripts/record-hygiene.sh
+
   # The integration half. Everything else in this workflow runs `cargo`, which
   # never launches the application: `smoke.sh` and `selftest.sh` existed for a
   # long time and no job called them, so the journeys they drive were verified
@@ -444,9 +472,11 @@ jobs:
   # device. Two different failures, and only one of them would be fixed by
   # someone clicking a dialog.
   #
-  # So the macOS job checks what it can — the binary comes up, places its window,
-  # reports a capture rect, and its rect follows the window — and stops short of
-  # pressing Record rather than reporting an absent device as a product failure.
+  # So the macOS job checks what it can. It does press Record — see "Pressing
+  # Record leaves nothing behind" there — but it asserts only what holds whichever
+  # way the attempt goes: a terminal state, an exit, no surviving ffmpeg, no
+  # workspace left behind. What it will not do is demand a recording and report an
+  # absent screen device as a product failure.
   journeys:
     name: User journeys
     needs: changes

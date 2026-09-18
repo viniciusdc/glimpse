@@ -131,6 +131,14 @@ bundle-macos: ## Build target/Glimpse.app, dylibs and all
 journeys-macos: ## Every user journey on macOS, on your real screen
 	@scripts/journeys-macos.sh
 
+.PHONY: record-hygiene
+# What `journeys-macos` cannot check in CI, checked in CI. The journeys need a
+# verdict — a file with frames in it — and a runner has no screen to record. The
+# four things this asserts instead are true whichever way the attempt goes, so it
+# runs on the macOS job as well as here. Every one of them is a symptom of #45.
+record-hygiene: ## Press Record and check the attempt leaves nothing behind
+	@scripts/record-hygiene.sh
+
 .PHONY: check-release-names
 # install.sh constructs the archive name release.yml writes, and neither file can
 # see the other. docs/releasing.md flagged that coupling while there was one

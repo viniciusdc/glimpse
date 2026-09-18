@@ -142,29 +142,49 @@ is covered by `examples/capture_rect_follows.rs`, which runs on every macOS
 build: growing the window by 90x60 points grows the capture rect by exactly
 180x120 device pixels.
 
-Three things are known to be needed alongside it and are not written:
+What is still open alongside it:
 
 - **`die_with_parent` is a no-op off Linux**, so `SIGKILL` orphans a recording
   ffmpeg on macOS. Harmless while macOS could not record; reachable now that it
   can, and now reachable from the UI rather than only from an example.
   `kqueue`'s `NOTE_EXIT` is the analogue of `PR_SET_PDEATHSIG`.
-- **CI cannot drive the macOS UI past geometry.** `make selftest`, `smoke.sh`
-  and `headless.sh` are X11-only, and there is no Xvfb on macOS. The runner also
-  cannot capture at all — measured on every build, ffmpeg exits 251 opening the
-  avfoundation input and the device list is empty — so the five journeys cannot
-  run there. They run locally through `make journeys-macos`, where all five
-  pass, and CI holds the parts that need no capture: the binary comes up, places
-  its window, and its capture rect follows the window when moved and resized.
-- **Packaging is decided and unbuilt.** macOS ships an `.app` bundle
+
+  The *ordinary* ways out are covered. Closing the window always was; quitting
+  through the application — Cmd-Q, the macOS menu — was not, because `app.quit()`
+  does not emit `close-request`, and `die_with_parent` had been quietly covering
+  for that on Linux the whole time. `Chrome` now reaps from the application's own
+  `shutdown` signal, which every route out passes through. What is left is the
+  signal nobody can handle.
+- **CI drives the macOS UI as far as a runner allows.** `make selftest`,
+  `smoke.sh` and `headless.sh` are X11-only, and there is no Xvfb on macOS. The
+  runner also cannot capture at all — measured on every build, ffmpeg exits 251
+  opening the avfoundation input and the device list is empty — so the five
+  journeys cannot run there. They run locally through `make journeys-macos`,
+  where all five pass.
+
+  What CI holds is everything that does not need a verdict about pixels: the
+  binary comes up, places its window, its capture rect follows the window when
+  moved and resized, and — `make record-hygiene` — Record is actually *pressed*,
+  because the four things worth asserting about what follows hold whichever way
+  the attempt goes. A terminal state rather than a stuck one, an app that exits,
+  no surviving ffmpeg, no workspace left behind: issue #45 itemised, and none of
+  it covered on macOS before. It also exercises the failure path no journey
+  reaches, since the runner's refusal is the one a user who denied permission
+  gets.
+- **The bundle ships; signing does not.** macOS ships an `.app` bundle
   ([ADR 0013](adr/0013-macos-ships-an-app-bundle.md)) — Screen Recording
   permission attaches to a bundle identifier that a bare binary cannot hold, and
-  the GTK dylibs need somewhere to live. The dylib handling in that record is
-  what the platform normally does rather than something measured; `otool -L` on a
-  Mac settles it and has not been run. Release artifacts and `install.sh` are
-  `linux-x86_64` only today, and `install.sh` *constructs* the name the release
-  workflow *writes* with nothing verifying the two agree — a coupling that
-  multiplies once macOS is added, and wants a check rather than a second
-  hardcoded string.
+  the GTK dylibs need somewhere to live. `make bundle-macos` builds it and
+  refuses to finish unless no Homebrew path survives in it; CI then answers the
+  question that ADR left open, by hiding Homebrew and starting the app anyway.
+  `install.sh` no longer constructs an artifact name that nothing checks against
+  the one `release.yml` writes — `make check-release-names` fails if they
+  disagree.
+
+  What is left is signing and notarization. The bundle is **ad-hoc signed**, so a
+  download through a browser is quarantined and macOS calls it damaged, while the
+  same file fetched with `curl` runs. That needs an Apple Developer account and
+  cannot be done here.
 
 For everything else, the product does what it set out to do: frame a region,
 record it to GIF or MP4, snapshot it, and refuse to hand over a file that is
