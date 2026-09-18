@@ -13,20 +13,26 @@
 # This closes most of that gap without inventing a second capture path, because
 # what it asserts is true **whichever way the attempt goes**:
 #
-#   * the app reaches a terminal state rather than sitting in Recording forever
-#   * it exits rather than hanging
+#   * the app exits rather than hanging
 #   * no ffmpeg survives it
 #   * no workspace is left in the temp directory
+#
+# Three, not four. The state the session ends in is reported and not asserted:
+# see the note further down about the check that had to be walked back.
 #
 # On a developer machine the recording succeeds and those hold. On a runner it
 # fails for want of a device and they hold too. A check whose verdict depended on
 # which machine it ran on would be worth very little, so this one does not have
 # one.
 #
-# WHY THESE FOUR. They are issue #45, itemised. An orphaned ffmpeg held the
-# capture device and broke the NEXT recording; the UI sat in Stopping; workspaces
-# accumulated 28 deep. Every symptom of that bug is one of the lines below, and
-# none of them was covered by anything on macOS.
+# WHY THESE. They are issue #45, itemised. An orphaned ffmpeg held the capture
+# device and broke the NEXT recording, and workspaces accumulated 28 deep. Both
+# are lines below, and neither was covered by anything on macOS.
+#
+# It found one the first time CI ran it: `app.quit()` does not emit
+# `close-request`, so quitting mid-recording never told the session to stand
+# down and ffmpeg outlived the process. Linux hides that behind
+# `die_with_parent`; macOS has no analogue.
 #
 # WHAT IT DOES NOT CHECK. That a recording is any good — that is the journeys'
 # job, and `scripts/journey-verdict.sh` holds their verdicts. This is about what
@@ -101,17 +107,18 @@ if [ "$hung" -ne 0 ]; then
   fail=1
 fi
 
-# A terminal state, not a particular one. `Completed` where capture works,
-# `Failed` where it does not; either is the machine arriving somewhere. Sitting
-# in Recording or Stopping is the bug.
-if grep -qE '\[smoke\] final state: (Completed|Failed|Cancelled)' "$log"; then
-  echo "ok: reached a terminal state — $(grep -oE 'final state: [A-Za-z]+' "$log" | head -1)"
-else
-  echo "FAIL: the session never reached a terminal state." >&2
-  echo "      Recording or Stopping at the end means the UI is stuck, which is" >&2
-  echo "      what issue #45 looked like from the outside." >&2
-  fail=1
-fi
+# REPORTED, NOT ASSERTED, and it was asserted in the first version of this file.
+#
+# The state the journey prints is the state three seconds after Stop, and how
+# long an encode takes is a property of the machine: `Completed` here,
+# `Encoding` on a loaded runner, `Failed` where there is no capture device. Then
+# the process exits and everything below is checked. Demanding a terminal state
+# at that instant is precisely the machine-dependent verdict this check was
+# written to avoid having — the mistake is easy to make twice.
+#
+# Nothing is lost. "Stuck in Stopping" was a symptom of #45, and a session stuck
+# anywhere has a live ffmpeg under it, which the next check does assert on.
+echo "report: $(grep -oE 'final state: .*' "$log" | head -1 || echo 'no final state logged')"
 
 if pgrep -f 'ffmpeg.*avfoundation' >/dev/null 2>&1 || pgrep -f 'ffmpeg.*x11grab' >/dev/null 2>&1; then
   echo "FAIL: an ffmpeg survived the attempt." >&2

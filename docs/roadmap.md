@@ -148,6 +148,13 @@ What is still open alongside it:
   ffmpeg on macOS. Harmless while macOS could not record; reachable now that it
   can, and now reachable from the UI rather than only from an example.
   `kqueue`'s `NOTE_EXIT` is the analogue of `PR_SET_PDEATHSIG`.
+
+  The *ordinary* ways out are covered. Closing the window always was; quitting
+  through the application — Cmd-Q, the macOS menu — was not, because `app.quit()`
+  does not emit `close-request`, and `die_with_parent` had been quietly covering
+  for that on Linux the whole time. `Chrome` now reaps from the application's own
+  `shutdown` signal, which every route out passes through. What is left is the
+  signal nobody can handle.
 - **CI drives the macOS UI as far as a runner allows.** `make selftest`,
   `smoke.sh` and `headless.sh` are X11-only, and there is no Xvfb on macOS. The
   runner also cannot capture at all — measured on every build, ffmpeg exits 251

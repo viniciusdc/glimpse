@@ -610,6 +610,36 @@ impl Chrome {
             });
         }
 
+        // The other way out, and the one that was missing.
+        //
+        // `app.quit()` does NOT emit `close-request`. Quitting through the
+        // application — Cmd-Q, the macOS menu, `finish_journey` at the end of a
+        // journey — went straight past the handler above, so nothing ever told
+        // the session to stand down: the state stayed `Recording`, the worker
+        // was never dropped, and ffmpeg outlived the process that spawned it,
+        // holding the capture device and leaving its workspace behind. Issue
+        // #45 exactly, by a route #45 did not close.
+        //
+        // Invisible on Linux, where `die_with_parent` has the kernel kill the
+        // child with the parent (ADR 0004). macOS has no analogue, so there it
+        // is the plain symptom — and it went unseen until CI pressed the button
+        // for the first time and `scripts/record-hygiene.sh` found the orphan.
+        //
+        // `connect_shutdown` fires once the main loop has stopped, on every
+        // route out, which is the one place that is true of. Dispatching first
+        // takes the session to `Cancelled` and aborts the worker; `shutdown`
+        // then drops it, and joining that thread is what guarantees the child
+        // is killed, waited on, and its workspace disposed of before the
+        // process ends. Both are idempotent, so the macOS signal handler
+        // running the same pair first costs nothing.
+        {
+            let me2 = me.clone();
+            app.connect_shutdown(move |_| {
+                me2.dispatch(Event::Shutdown);
+                me2.shutdown();
+            });
+        }
+
         me.refresh();
         me
     }
@@ -761,7 +791,7 @@ impl Chrome {
         // deterministic tests cannot show, because they cannot hit the window.
         if mode == "cancel-encode" {
             let me = self.clone();
-            glib::timeout_add_seconds_local_once(2, move || {
+            when_framed(self, move || {
                 me.on_record_clicked();
                 let me2 = me.clone();
                 glib::timeout_add_seconds_local_once(3, move || {
@@ -794,7 +824,7 @@ impl Chrome {
         // ffmpeg takes to finalise a container is not something to hardcode.
         if mode == "retry" {
             let me = self.clone();
-            glib::timeout_add_seconds_local_once(2, move || {
+            when_framed(self, move || {
                 me.on_record_clicked(); // Record
                 let m = me.clone();
                 glib::timeout_add_seconds_local_once(3, move || {
@@ -833,7 +863,7 @@ impl Chrome {
         }
         if mode == "snapshot" {
             let me = self.clone();
-            glib::timeout_add_seconds_local_once(2, move || {
+            when_framed(self, move || {
                 println!("[smoke] pressing Snapshot");
                 me.mode.set(Mode::Snapshot);
                 me.on_record_clicked();
@@ -853,7 +883,7 @@ impl Chrome {
                 self.chip.set_text(OutputFormat::Mp4.label());
             }
             let me = self.clone();
-            glib::timeout_add_seconds_local_once(2, move || {
+            when_framed(self, move || {
                 // State the mode, exactly as the snapshot branch does. The split
                 // button REMEMBERS what you last chose and that choice persists
                 // to config.toml (ADR 0009), so without this the record smoke
@@ -867,6 +897,11 @@ impl Chrome {
                 println!("[smoke] pressing Record");
                 me.on_record_clicked();
                 println!("[smoke] state: {:?}", me.state());
+                // The status too, because a press that does nothing leaves the
+                // state at `Idle` and the reason only in the status line. When
+                // that happened on a CI runner the log said `state: Idle` and
+                // nothing else, and the cause took a round trip to find.
+                println!("[smoke] status: {}", me.status.text());
 
                 let me2 = me.clone();
                 glib::timeout_add_seconds_local_once(3, move || {
@@ -1016,6 +1051,59 @@ fn hold_after_selftest() -> bool {
 /// it — and forgetting is invisible, because the app simply vanishes before it
 /// can be looked at, which is the failure the hold exists to prevent.
 /// `check-journeys.sh` asserts this stays the only place a journey quits.
+/// Start a journey once the frame is actually up, rather than once two seconds
+/// have passed.
+///
+/// Every journey used to open with a flat delay, on the assumption that a window
+/// is mapped and measurable by then. On a loaded macOS CI runner it is not. The
+/// first press arrived before `capture_rect` could answer, `lock()` refused it,
+/// and `on_record_clicked` returned having done nothing — so every later press
+/// in the sequence shifted by one. The `record` journey quietly became "start a
+/// recording, then quit while it is still running", and exited 0 while doing it.
+///
+/// That is the same failure the `mode` comment in the record branch describes: a
+/// journey that has stopped testing what it says it tests and cannot say so. It
+/// was caught by `scripts/record-hygiene.sh` noticing the orphaned ffmpeg the
+/// shifted sequence left behind — which is what that check is for.
+///
+/// So wait for the state the journey needs instead of for a duration that
+/// usually produces it. `capture_rect` asks exactly what `lock()` asks and
+/// changes nothing by asking.
+fn when_framed(chrome: &Rc<Chrome>, body: impl FnOnce() + 'static) {
+    const EVERY_MS: u32 = 100;
+    const GIVE_UP_AFTER: u32 = 150; // 15s, far past any real window mapping
+
+    let chrome = chrome.clone();
+    let mut body = Some(body);
+    let mut waited = 0u32;
+    glib::timeout_add_local(
+        std::time::Duration::from_millis(EVERY_MS as u64),
+        move || {
+            waited += 1;
+            // A zero-sized rect is measurable and useless: `lock` refuses it, so
+            // waiting on `is_ok` alone would hand the journey the same failure
+            // one step later.
+            match chrome.capture_rect() {
+                Ok(r) if r.w > 0 && r.h > 0 => {}
+                other => {
+                    if waited < GIVE_UP_AFTER {
+                        return glib::ControlFlow::Continue;
+                    }
+                    // Pressing on rather than returning quietly: a journey that
+                    // declines to run without saying so is the thing this
+                    // exists to prevent.
+                    println!("[smoke] frame never became measurable ({other:?}); pressing on");
+                }
+            }
+            println!("[smoke] frame up after {}ms", waited * EVERY_MS);
+            if let Some(f) = body.take() {
+                f();
+            }
+            glib::ControlFlow::Break
+        },
+    );
+}
+
 fn finish_journey(window: &gtk::ApplicationWindow) {
     if hold_after_selftest() {
         println!("[smoke] holding: GLIMPSE_SELFTEST_HOLD is set");
