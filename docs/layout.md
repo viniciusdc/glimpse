@@ -23,6 +23,7 @@ crates/glimpse-core/    Platform-free. No gtk4, no x11rb, no objc2 — by manife
   tests/geometry.rs     Clipping — the part of the chain testable without a display
   tests/session.rs      Lifecycle policy: drift, retry, cancellation, shutdown
   tests/capture.rs      Output arguments, filter placement, workspace ownership
+  tests/recorder.rs     Owning a real ffmpeg child: start, stop, reap. No display needed
   tests/config.rs       Defaults, round-trip, and surviving a corrupt file
   tests/encode.rs       Collision policy, argument shape, real GIF and MP4 encodes
   tests/progress_probe.rs  What ffmpeg's progress output actually looks like
