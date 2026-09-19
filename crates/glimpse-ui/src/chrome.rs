@@ -797,20 +797,37 @@ impl Chrome {
                 glib::timeout_add_seconds_local_once(3, move || {
                     me2.on_record_clicked(); // Stop
                     let me3 = me2.clone();
-                    // Fire while the encoder is still working.
-                    glib::timeout_add_local_once(
-                        std::time::Duration::from_millis(400),
+                    // Fire while the encoder is working — which means waiting
+                    // for it to start. This was a flat 400ms after Stop, and
+                    // on a CI runner the recorder was still finalising then,
+                    // so the cancel landed in Stopping and tested nothing.
+                    when(
+                        &me2,
+                        "the encode started",
+                        JOURNEY_PATIENCE,
+                        |c| matches!(&*c.state.borrow(), State::Encoding { .. }),
                         move || {
                             println!("[smoke] state before cancel: {:?}", me3.state());
                             println!("[smoke] ffmpeg alive: {}", ffmpeg_count());
                             me3.on_record_clicked(); // Cancel
                             let me4 = me3.clone();
-                            glib::timeout_add_seconds_local_once(2, move || {
-                                println!("[smoke] state after cancel:  {:?}", me4.state());
-                                println!("[smoke] ffmpeg alive: {}", ffmpeg_count());
-                                println!("[smoke] status: {}", me4.status.text());
-                                finish_journey(&me4.window);
-                            });
+                            // Settled, and then the encoder's child gone. The
+                            // verdict asserts there is none; waiting a bounded
+                            // time for the reap is what separates "not yet"
+                            // from "never", and a surviving ffmpeg is still
+                            // reported as one.
+                            when(
+                                &me3,
+                                "the cancel settled and its child was reaped",
+                                JOURNEY_PATIENCE,
+                                |c| is_settled(&c.state.borrow()) && ffmpeg_count() == 0,
+                                move || {
+                                    println!("[smoke] state after cancel:  {:?}", me4.state());
+                                    println!("[smoke] ffmpeg alive: {}", ffmpeg_count());
+                                    println!("[smoke] status: {}", me4.status.text());
+                                    finish_journey(&me4.window);
+                                },
+                            );
                         },
                     );
                 });
@@ -868,10 +885,19 @@ impl Chrome {
                 me.mode.set(Mode::Snapshot);
                 me.on_record_clicked();
                 let me2 = me.clone();
-                glib::timeout_add_seconds_local_once(3, move || {
-                    println!("[smoke] status: {}", me2.status.text());
-                    finish_journey(&me2.window);
-                });
+                // A snapshot is not a session (ADR 0009), so there is no state
+                // to wait on — the status line is where it reports, and
+                // `capturing…` is the only thing it says while in flight.
+                when(
+                    &me,
+                    "the snapshot finished",
+                    JOURNEY_PATIENCE,
+                    |c| !c.status.text().starts_with("capturing"),
+                    move || {
+                        println!("[smoke] status: {}", me2.status.text());
+                        finish_journey(&me2.window);
+                    },
+                );
             });
             return;
         }
@@ -908,16 +934,25 @@ impl Chrome {
                     println!("[smoke] pressing Stop");
                     me2.on_record_clicked();
 
-                    // Give the worker time to finalise, then report and quit.
+                    // Wait for the session to settle, then report and quit. This
+                    // was a flat three seconds, and on a CI runner the state
+                    // at that instant was still Stopping.
                     let me3 = me2.clone();
-                    glib::timeout_add_seconds_local_once(3, move || {
-                        println!("[smoke] final state: {:?}", me3.state());
-                        if let Some(v) = me3.state.borrow().retryable() {
-                            let bytes = std::fs::metadata(&v.path).map(|m| m.len()).unwrap_or(0);
-                            println!("[smoke] recording: {} ({bytes} bytes)", v.path.display());
-                        }
-                        finish_journey(&me3.window);
-                    });
+                    when(
+                        &me2,
+                        "the session settled",
+                        JOURNEY_PATIENCE,
+                        |c| is_settled(&c.state.borrow()),
+                        move || {
+                            println!("[smoke] final state: {:?}", me3.state());
+                            if let Some(v) = me3.state.borrow().retryable() {
+                                let bytes =
+                                    std::fs::metadata(&v.path).map(|m| m.len()).unwrap_or(0);
+                                println!("[smoke] recording: {} ({bytes} bytes)", v.path.display());
+                            }
+                            finish_journey(&me3.window);
+                        },
+                    );
                 });
             });
             return;
@@ -1102,6 +1137,66 @@ fn when_framed(chrome: &Rc<Chrome>, body: impl FnOnce() + 'static) {
             glib::ControlFlow::Break
         },
     );
+}
+
+/// Run `then` once `ready` holds, or once `limit` has passed — whichever is
+/// first — and say which, and how long it took.
+///
+/// Four of the five journeys used to sleep a fixed three seconds between steps
+/// and read whatever state they found. On a macOS CI runner every one of them
+/// failed: `Stopping` three seconds after Stop, `capturing…` three seconds after
+/// Snapshot, a cancel that landed before the encode began. The fifth, `retry`,
+/// passed — the one that already polled for the state it needed, and whose
+/// comment says why: how long ffmpeg takes to finalise a container is not
+/// something to hardcode.
+///
+/// The limit is what keeps this from being a longer sleep in disguise. A slow
+/// runner and a stuck session look identical at three seconds and completely
+/// different at forty: one arrives, the other is still in `Stopping`, which is
+/// what issue #45 looked like. Reaching the limit does not skip the step — the
+/// journey carries on and its verdict reports the state it found, so a hang
+/// is a failure with a name rather than a watchdog kill with none.
+fn when(
+    chrome: &Rc<Chrome>,
+    what: &'static str,
+    limit: std::time::Duration,
+    ready: impl Fn(&Chrome) -> bool + 'static,
+    then: impl FnOnce() + 'static,
+) {
+    const EVERY: std::time::Duration = std::time::Duration::from_millis(100);
+    let chrome = chrome.clone();
+    let started = std::time::Instant::now();
+    let mut then = Some(then);
+    glib::timeout_add_local(EVERY, move || {
+        let arrived = ready(&chrome);
+        if !arrived && started.elapsed() < limit {
+            return glib::ControlFlow::Continue;
+        }
+        let ms = started.elapsed().as_millis();
+        if arrived {
+            println!("[smoke] {what} after {ms}ms");
+        } else {
+            println!("[smoke] gave up waiting for {what} after {ms}ms");
+        }
+        if let Some(f) = then.take() {
+            f();
+        }
+        glib::ControlFlow::Break
+    });
+}
+
+/// Long enough that no healthy machine reaches it, short enough to fit inside
+/// the 60s watchdog `journeys-macos.sh` runs each journey under — so a stuck
+/// session is reported by the journey, not killed by the harness. `smoke.sh`
+/// has no watchdog of its own; on Linux this limit is the only thing between a
+/// stuck session and the CI job's timeout.
+const JOURNEY_PATIENCE: std::time::Duration = std::time::Duration::from_secs(40);
+
+fn is_settled(s: &State) -> bool {
+    matches!(
+        s,
+        State::Completed { .. } | State::Failed { .. } | State::Cancelled { .. }
+    )
 }
 
 fn finish_journey(window: &gtk::ApplicationWindow) {
