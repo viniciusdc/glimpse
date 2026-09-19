@@ -10,11 +10,12 @@
 //! WHY IT EXISTS. "A GitHub runner has no Screen Recording permission" was
 //! asserted, then used to explain why the macOS journeys cannot run there, then
 //! written into a CI assertion — which failed, because the runner reports the
-//! permission as **granted**. What it does not have is a screen device:
-//! `-list_devices` comes back with an I/O error and an empty list.
+//! permission as **granted**.
 //!
-//! Those are two different failures with two different fixes, and a capture that
-//! refuses tells you which one only if you ask. This asks.
+//! The explanation that replaced it, "no screen device", was wrong as well: the
+//! capture probe was reading an index that does not exist on a runner, and the
+//! runner records (#56). Two confident explanations for a limitation that was
+//! never there. This one at least asks the system rather than inferring.
 
 #[cfg(not(target_os = "macos"))]
 fn main() {

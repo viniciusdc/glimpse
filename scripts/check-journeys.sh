@@ -92,7 +92,11 @@ if [[ -z "$holder" ]]; then
   echo "finish_journey not found; journeys have no single place to end" >&2
   exit 1
 fi
-quits=$(grep -cE '\.quit\(\)' "$holder")
+# Calls, not mentions. A comment explaining what `app.quit()` does is not a
+# second way out, and counting it as one made this fail on a file whose code
+# quit in exactly one place — unseen for a while, because CI did not run this
+# check at all (see the Docs job).
+quits=$(grep -vE '^\s*//' "$holder" | grep -cE '\.quit\(\)' || true)
 if [[ "$quits" != "1" ]]; then
   echo >&2
   echo "$holder quits in $quits places; it must quit in exactly one." >&2
