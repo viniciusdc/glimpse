@@ -108,6 +108,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: make docs-check
 
+      # `make check` calls itself "the gates CI runs", and these two were in it
+      # and in no workflow. Both were written to stop something being orphaned
+      # — a journey nothing drives, an artifact name nothing checks — and both
+      # were orphaned themselves. check-journeys was failing on main when this
+      # was noticed. Here because they need a checkout and a shell, nothing else.
+      - run: make check-journeys
+      - run: make check-release-names
+
       # Only the markdown this change touched. A pull request answers for the
       # links it introduces or edits, not for the forty it left alone — and
       # re-checking those every time is how a link check becomes something people
@@ -312,21 +320,36 @@ jobs:
       # from a guess is how a platform ends up with no coverage for a reason
       # nobody checked.
       #
-      # The answer, as of this being written: REFUSED. ffmpeg exits 251 with
-      # "Error opening input: Input/output error", and even enumerating the
-      # devices fails, so there is no screen device to ask for permission to.
+      # It never gates: the journeys below are what fail the build if capture
+      # breaks. This says why, in one line, when they do.
       #
-      # It stays anyway, and never gates. Runner images change, and this is the
-      # one thing that would notice the constraint lifting — at which point
-      # `scripts/journeys-macos.sh` can run here and several comments saying it
-      # cannot become wrong.
+      # CORRECTED (#56). This step said REFUSED for months, and the runner could
+      # record all along. It was wrong twice over. It listed the devices with
+      # `-loglevel error`, which suppresses the listing itself — the device list
+      # is info-level output — so all it ever showed was the error ffmpeg prints
+      # on exit. And it captured from a hardcoded `2`, which is where the screen
+      # sits on a Mac with two cameras and does not exist on a runner.
+      #
+      # `AvfCapture::discover()` never made either mistake: it reads the index
+      # out of the listing. It found 0, and the first time CI pressed Record a
+      # full recording completed. The step was added to measure rather than
+      # assume, and it still enshrined an assumption one layer down — so it now
+      # finds the index the way the product does.
       - name: Can this runner capture the screen?
         run: |
           set +e
-          ffmpeg -hide_banner -loglevel error -f avfoundation -list_devices true -i "" 2>&1 \
-            | sed 's/^/  devices: /'
+          listing=$(ffmpeg -hide_banner -f avfoundation -list_devices true -i "" 2>&1)
+          echo "$listing" | grep -E '\[[0-9]+\] ' | sed 's/^/  devices: /'
+          # Video devices only: the audio list follows and reuses the indices.
+          idx=$(echo "$listing" | sed '/audio devices/q' | grep 'Capture screen' | head -1 \
+                  | sed -E 's/.*\[([0-9]+)\] Capture screen.*/\1/')
+          if [ -z "$idx" ]; then
+            echo "CAPTURE-ON-CI: no screen device listed"
+            exit 0
+          fi
+          echo "  screen device: $idx (read from the listing, as discover() does)"
           out=$(ffmpeg -hide_banner -nostdin -f avfoundation -framerate 15 -pix_fmt bgr0 \
-                  -i "2:none" -t 1 -c:v ffv1 -y /tmp/ci-capture.mkv 2>&1)
+                  -i "${idx}:none" -t 1 -c:v ffv1 -y /tmp/ci-capture.mkv 2>&1)
           rc=$?
           echo "  ffmpeg exit: $rc"
           echo "$out" | tail -15 | sed 's/^/  /'
@@ -345,13 +368,12 @@ jobs:
       # has had to be walked back. The first version of this step asserted the
       # runner would report the permission as MISSING, on the reasoning that a
       # runner has nobody to grant it. It fails: preflight comes back **granted**.
-      # What the runner does not have is a screen device — `-list_devices`
-      # returns an I/O error and an empty list, which the step above measures.
       #
-      # So "CI cannot record" is true for a reason that is not permission, and
-      # the refusal path in `glimpse_macos::permission` stays unreachable here.
-      # It is exercised by its unit tests and by a machine where the grant is
-      # genuinely absent, not by this.
+      # The explanation that replaced it — "no screen device" — was wrong too
+      # (#56); see the step above. The runner has the grant AND the device, and
+      # records. So the refusal path in `glimpse_macos::permission` stays
+      # unreachable here, because nothing on a runner refuses. It is exercised
+      # by its unit tests and by a machine where the grant is genuinely absent.
       - name: What macOS says about Screen Recording permission
         run: cargo run --locked -p glimpse-macos --example permission_probe
 
@@ -406,13 +428,7 @@ jobs:
           fi
           echo 'the bundle is self-contained'
 
-      # The macOS half of the journeys, or as much of it as a runner can hold.
-      #
-      # The five user journeys all RECORD, and the step above measures that this
-      # runner cannot: ffmpeg exits 251 opening the avfoundation input, and the
-      # device list is empty. They run locally through
-      # `scripts/journeys-macos.sh` instead, which is the honest place for a
-      # check that needs a screen a human has unlocked.
+      # Geometry that a drag cannot check, before anything records.
       #
       # This one does not record. It builds the real chrome, asks it what it
       # would capture, moves the window, and asks again — the regression guard
@@ -424,33 +440,36 @@ jobs:
       - name: The capture rect follows the window
         run: cargo run --locked -p glimpse-macos --example capture_rect_follows
 
-      # Press Record for real, and check what the attempt leaves behind.
+      # Press Record for real, and check what the attempt leaves behind: the app
+      # exits, no ffmpeg survives it, no workspace is left in the temp directory.
       #
-      # The step above stops short of pressing it, because the verdict of a
-      # journey depends on a screen this runner does not have. But the button
-      # itself can be pressed here, and the things worth asserting about what
-      # follows do NOT depend on which way it goes:
-      #
-      #   the session reaches a terminal state rather than sitting in Recording
-      #   the app exits rather than hanging
-      #   no ffmpeg survives it
-      #   no workspace is left in the temp directory
-      #
-      # On a developer machine the recording succeeds and all four hold. Here it
-      # fails for want of a device and all four hold too. That is the whole
-      # reason this one can run in CI when the journeys cannot: it does not have
-      # a verdict that varies by machine.
-      #
-      # This is issue #45 itemised. An orphaned ffmpeg held the capture device
-      # and broke the NEXT recording, the UI sat in Stopping, and workspaces
-      # accumulated 28 deep — every symptom is one of the four lines, and none of
-      # them was covered by anything on macOS. The failure path it exercises here
-      # is the one a user with permission denied takes, which no journey reaches.
+      # Written when this runner was believed unable to record, as the part of a
+      # journey that holds whichever way the attempt goes. It turned out the
+      # runner records, and the journeys below now run here too — but this still
+      # asserts something they do not. They check that each journey did what it
+      # says; this checks the process table and the temp directory after the
+      # app is gone, which is where issue #45 lived. The first time it ran it
+      # found an orphaned ffmpeg that `die_with_parent` had been hiding on Linux.
       #
       # The release binary, not a second debug build: this is the slowest job in
       # the workflow already.
       - name: Pressing Record leaves nothing behind
         run: GLIMPSE_BIN=./target/release/glimpse scripts/record-hygiene.sh
+
+      # Every user journey, on macOS, in CI (#56).
+      #
+      # For months this was believed impossible — "a runner has no screen
+      # device" — and the belief came from the probe above reading a device
+      # index that does not exist on a runner. The runner records. So the five
+      # journeys run here with the same verdicts Linux uses, from the same file,
+      # and the macOS half of ADR 0002's durability guarantees stops depending on
+      # somebody remembering to run `make journeys-macos` on their own screen.
+      #
+      # The verdicts assert on states and committed files, not on pixels, which
+      # is why a runner's screen is enough. What is on it is not checked here —
+      # `make selftest` is where an image gets looked at.
+      - name: Every user journey
+        run: GLIMPSE_BIN=./target/release/glimpse scripts/journeys-macos.sh
 
   # The integration half. Everything else in this workflow runs `cargo`, which
   # never launches the application: `smoke.sh` and `selftest.sh` existed for a
@@ -462,21 +481,16 @@ jobs:
   # covers those as policy in 17 instant tests; what nothing covered is that the
   # UI is wired to that policy.
   #
-  # X11 only, and no longer because it is the only frontend: macOS runs the same
-  # chrome now (ADR 0017). It is because these journeys record and a macOS runner
-  # cannot — measured in the macOS job, where ffmpeg exits 251 on the
-  # avfoundation input and the device list comes back empty.
+  # X11 here. macOS runs the same five in its own job, through
+  # `scripts/journeys-macos.sh`, against the same verdicts — they live in
+  # `scripts/journey-verdict.sh` so the platforms cannot drift into asserting
+  # different things. Separate jobs because there is no Xvfb on macOS and no
+  # avfoundation on Linux, not because either platform is covered less.
   #
-  # Not for want of permission, which is the explanation that reads well and is
-  # wrong: the runner reports Screen Recording as GRANTED. It has no screen
-  # device. Two different failures, and only one of them would be fixed by
-  # someone clicking a dialog.
-  #
-  # So the macOS job checks what it can. It does press Record — see "Pressing
-  # Record leaves nothing behind" there — but it asserts only what holds whichever
-  # way the attempt goes: a terminal state, an exit, no surviving ffmpeg, no
-  # workspace left behind. What it will not do is demand a recording and report an
-  # absent screen device as a product failure.
+  # For months macOS was covered less, on the belief that a runner could not
+  # record. Two explanations were given for it, no permission and then no screen
+  # device, and both were wrong (#56). Worth remembering the next time a CI
+  # limitation is cited as the reason something is not tested.
   journeys:
     name: User journeys
     needs: changes

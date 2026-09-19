@@ -125,17 +125,16 @@ bundle-macos: ## Build target/Glimpse.app, dylibs and all
 
 .PHONY: journeys-macos
 # The same journeys `make journeys` runs, on the frontend that cannot run them
-# off-screen. There is no Xvfb on macOS, so this uses YOUR screen — and it
-# cannot run in CI at all, because a runner has no Screen Recording permission
-# and avfoundation would fail for a reason that is not a product bug.
+# off-screen. There is no Xvfb on macOS, so locally this uses YOUR screen. CI
+# runs it too, on the runner's (#56).
 journeys-macos: ## Every user journey on macOS, on your real screen
 	@scripts/journeys-macos.sh
 
 .PHONY: record-hygiene
-# What `journeys-macos` cannot check in CI, checked in CI. The journeys need a
-# verdict — a file with frames in it — and a runner has no screen to record. The
-# four things this asserts instead are true whichever way the attempt goes, so it
-# runs on the macOS job as well as here. Every one of them is a symptom of #45.
+# What is left on the machine after Record is pressed: no ffmpeg, no workspace,
+# an app that exited. The journeys check each journey did what it says; this
+# checks the process table and the temp directory once the app is gone, which is
+# where #45 lived. Runs on the macOS CI job as well as here.
 record-hygiene: ## Press Record and check the attempt leaves nothing behind
 	@scripts/record-hygiene.sh
 

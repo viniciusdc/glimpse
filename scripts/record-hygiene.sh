@@ -4,14 +4,10 @@
 #
 #   scripts/record-hygiene.sh
 #
-# WHY THIS EXISTS. The five user journeys cannot run on a macOS CI runner: they
-# record, and a runner has no screen device — measured, ffmpeg exits 251 opening
-# the avfoundation input and the device list comes back empty. So the wiring from
-# the button through the session machine to the worker is exercised on Linux and
-# asserted on macOS.
-#
-# This closes most of that gap without inventing a second capture path, because
-# what it asserts is true **whichever way the attempt goes**:
+# WHY THIS EXISTS. It was written when a macOS CI runner was believed unable to
+# record — the capture probe said so on every build, reading a device index that
+# does not exist on a runner (#56). So it asserts only what is true **whichever
+# way the attempt goes**:
 #
 #   * the app exits rather than hanging
 #   * no ffmpeg survives it
@@ -20,10 +16,12 @@
 # Three, not four. The state the session ends in is reported and not asserted:
 # see the note further down about the check that had to be walked back.
 #
-# On a developer machine the recording succeeds and those hold. On a runner it
-# fails for want of a device and they hold too. A check whose verdict depended on
-# which machine it ran on would be worth very little, so this one does not have
-# one.
+# They hold whether the recording succeeds or is refused — a machine without
+# the permission takes the refusal path, which no journey reaches. A check whose
+# verdict depended on which machine it ran on would be worth very little, so this
+# one does not have one. That still earns its place now the journeys run in CI:
+# they check each journey did what it says, and this checks the process table
+# and the temp directory after the app is gone.
 #
 # WHY THESE. They are issue #45, itemised. An orphaned ffmpeg held the capture
 # device and broke the NEXT recording, and workspaces accumulated 28 deep. Both

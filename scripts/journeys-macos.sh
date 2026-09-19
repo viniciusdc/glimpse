@@ -15,25 +15,17 @@
 # be stopped, and the first thing that reproduced it was driving a journey by
 # hand.
 #
-# WHY IT CANNOT RUN IN CI, MEASURED. The macOS job attempts a one-second
-# avfoundation capture on every build and reports the result. On a GitHub runner
-# it refuses: ffmpeg exits 251 with "Error opening input: Input/output error",
-# and even enumerating the devices fails, so there is no screen device to ask for
-# permission to. Every journey would therefore fail for a reason that is not a
-# product bug — worse than not running them, because a red check nobody can act
-# on is one people learn to ignore.
+# IT RUNS IN CI, AND FOR MONTHS THIS FILE SAID IT COULD NOT (#56). The reason
+# given was measured: the macOS job's capture probe reported ffmpeg exiting 251
+# on every build. What it measured was a device index — the probe captured from
+# a hardcoded `2`, and on a runner the screen is `0`. The product never made that
+# mistake, and the first time CI pressed Record through the real app a recording
+# completed. A measurement can be real and still answer the wrong question.
 #
-# That step is not decoration: if a future runner image can capture, it says so,
-# and this file should start running there.
-#
-# WHAT CI DOES INSTEAD. `scripts/record-hygiene.sh` presses Record on the runner
-# and asserts only what is true whichever way the attempt goes — a terminal
-# state, an exit, no surviving ffmpeg, no workspace left behind. It has no
-# verdict about pixels, which is exactly why it can run where these cannot.
-#
-# WHY IT USES YOUR SCREEN. There is no Xvfb on macOS. The journeys put a window
-# up, record a region of your desktop and write a file. AGENTS.md says not to run
-# this on somebody else's machine, and it means it.
+# WHY IT USES YOUR SCREEN, LOCALLY. There is no Xvfb on macOS. The journeys put a
+# window up, record a region of your desktop and write a file. AGENTS.md says not
+# to run this on somebody else's machine, and it means it. A CI runner's screen
+# belongs to nobody.
 #
 # WHAT WOULD HAPPEN IF THE THING THIS TESTS WERE BROKEN. Nothing, until a user
 # found it — which is exactly how #45 arrived.
@@ -66,7 +58,14 @@ if pgrep -f 'ffmpeg.*avfoundation' >/dev/null 2>&1; then
   exit 1
 fi
 
-cargo build --locked -q
+# CI has a release binary already; building a debug one as well would double
+# the slowest step in the job. Same override `record-hygiene.sh` takes.
+BIN="${GLIMPSE_BIN:-}"
+if [ -z "$BIN" ]; then
+  cargo build --locked -q
+  BIN=./target/debug/glimpse
+fi
+[ -x "$BIN" ] || { echo "journeys-macos: no binary at $BIN" >&2; exit 1; }
 
 pass=0
 fail=0
@@ -76,7 +75,7 @@ for mode in "${want[@]}"; do
 
   # No timeout(1) on macOS, so the watchdog is here: a journey that hangs must
   # end as a failure rather than as a build that never finishes.
-  GLIMPSE_SELFTEST="$mode" ./target/debug/glimpse >"$log" 2>&1 &
+  GLIMPSE_SELFTEST="$mode" "$BIN" >"$log" 2>&1 &
   pid=$!
   waited=0
   while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 60 ]; do

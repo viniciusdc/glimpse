@@ -3,10 +3,14 @@
 //! **WHY THIS EXISTS.** `Recorder` is the one part of Glimpse that owns an
 //! operating-system process, and until now nothing in the suite started one.
 //! `tests/capture.rs` checks the arguments a `GrabCommand` turns into and never
-//! spawns anything; the user journeys spawn plenty, but they need a screen, and
-//! a macOS CI runner has none — measured, `ffmpeg` exits 251 opening the
-//! avfoundation input and the device list comes back empty. So the whole
-//! start/stop/reap lifecycle was verified on Linux and asserted on macOS.
+//! spawns anything; the user journeys spawn plenty, but they need a screen.
+//! These need only ffmpeg, so they run anywhere `cargo test` does and pin the
+//! start/stop/reap lifecycle down below the level of any UI.
+//!
+//! (This header once said a macOS CI runner has no screen, which was the reason
+//! given for writing these. It has one — the probe that said otherwise was
+//! reading the wrong device index, #56 — but the tests stand on their own: a
+//! lifecycle bug is quicker to find here than through a journey.)
 //!
 //! **WHY A SYNTHETIC SOURCE IS NOT CHEATING HERE.** `GrabCommand` is plain data,
 //! and [ADR 0010](../../docs/adr/0010-capture-providers-and-a-platform-free-core.md)

@@ -155,22 +155,16 @@ What is still open alongside it:
   for that on Linux the whole time. `Chrome` now reaps from the application's own
   `shutdown` signal, which every route out passes through. What is left is the
   signal nobody can handle.
-- **CI drives the macOS UI as far as a runner allows.** `make selftest`,
-  `smoke.sh` and `headless.sh` are X11-only, and there is no Xvfb on macOS. The
-  runner also cannot capture at all — measured on every build, ffmpeg exits 251
-  opening the avfoundation input and the device list is empty — so the five
-  journeys cannot run there. They run locally through `make journeys-macos`,
-  where all five pass.
+- **CI runs every journey on macOS too** ([#56](https://github.com/viniciusdc/glimpse/issues/56)).
+  For months it did not, on the belief that a runner cannot record — measured,
+  it seemed, by a probe that exited 251 on every build. The probe was capturing
+  from a hardcoded device index that does not exist on a runner; the product
+  reads the index from the listing and records fine. The five journeys now run
+  in the macOS job against the same verdicts Linux uses, alongside
+  `make record-hygiene`, which checks nothing is left behind once the app exits.
 
-  What CI holds is everything that does not need a verdict about pixels: the
-  binary comes up, places its window, its capture rect follows the window when
-  moved and resized, and — `make record-hygiene` — Record is actually *pressed*,
-  because the four things worth asserting about what follows hold whichever way
-  the attempt goes. A terminal state rather than a stuck one, an app that exits,
-  no surviving ffmpeg, no workspace left behind: issue #45 itemised, and none of
-  it covered on macOS before. It also exercises the failure path no journey
-  reaches, since the runner's refusal is the one a user who denied permission
-  gets.
+  What CI cannot check on either platform is what the pixels look like. That is
+  `make selftest`, and a person looking at the PNG it writes.
 - **The bundle ships; signing does not.** macOS ships an `.app` bundle
   ([ADR 0013](adr/0013-macos-ships-an-app-bundle.md)) — Screen Recording
   permission attaches to a bundle identifier that a bare binary cannot hold, and
