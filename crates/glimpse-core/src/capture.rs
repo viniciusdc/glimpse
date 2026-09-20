@@ -20,6 +20,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
@@ -385,6 +386,67 @@ pub struct Recorder {
     child: Child,
     workspace: Workspace,
     output: PathBuf,
+    /// The guard from [ADR 0019](../../docs/adr/0019-a-recording-outlives-a-killed-glimpse.md),
+    /// where one is running. `None` on Linux, where the kernel does this, and
+    /// `None` wherever no reaper binary has been declared — see
+    /// [`set_reaper_command`].
+    reaper: Option<Child>,
+}
+
+/// The command that guards a capture against a `SIGKILL`ed Glimpse.
+///
+/// **Declared by the application, not discovered by the library.** The obvious
+/// implementation is `std::env::current_exe()` inside `Recorder::start`, and it
+/// is wrong here: `cargo test` would make every test that starts a recorder
+/// re-execute the *test harness* with `--reap`, which is a different program
+/// that reads those as filter arguments. A library that spawns copies of
+/// whatever binary happens to contain it is a library with a surprise in it.
+///
+/// So the binary names itself, once, at start-up, and anything that has not is
+/// simply unguarded — which is the correct behaviour for a test, and leaves the
+/// start-up sweep as the backstop it already is.
+static REAPER_COMMAND: OnceLock<PathBuf> = OnceLock::new();
+
+/// Name the executable to re-run as `--reap`. Called once, by `main`.
+///
+/// Later calls are ignored rather than refused: this is start-up configuration,
+/// and a second caller is a bug in the caller rather than a reason to fail a
+/// recording.
+pub fn set_reaper_command(exe: PathBuf) {
+    let _ = REAPER_COMMAND.set(exe);
+}
+
+/// Spawn the guard for `child_pid`, if this platform needs one and a command was
+/// declared.
+///
+/// Best effort, and deliberately not an error. Failing to spawn a watchdog is
+/// not a reason to refuse a recording the user asked for: without it the
+/// behaviour is exactly what it was before ADR 0019, which the start-up sweep
+/// already covers, one launch later.
+#[cfg(not(target_os = "linux"))]
+fn spawn_reaper(child_pid: u32) -> Option<Child> {
+    let exe = REAPER_COMMAND.get()?;
+    Command::new(exe)
+        .arg("--reap")
+        .arg(std::process::id().to_string())
+        .arg(child_pid.to_string())
+        // No inherited pipes. A guard holding the parent's stderr would keep
+        // that pipe open after the parent died, which is the sort of thing that
+        // makes a shell wait forever on a process nobody is watching.
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| eprintln!("glimpse: could not start the capture guard: {e}"))
+        .ok()
+}
+
+/// Linux does not need one and does not pay for one: `PR_SET_PDEATHSIG` is the
+/// kernel doing this job, and a second mechanism doing the same work is a second
+/// thing to keep true.
+#[cfg(target_os = "linux")]
+fn spawn_reaper(_child_pid: u32) -> Option<Child> {
+    None
 }
 
 impl Recorder {
@@ -409,10 +471,16 @@ impl Recorder {
             .spawn()
             .context("spawning ffmpeg — is it installed?")?;
 
+        // After the child exists, because the guard needs its pid; before
+        // anything can fail, because a recorder that returns has a guard and one
+        // that does not was never started.
+        let reaper = spawn_reaper(child.id());
+
         Ok(Self {
             child,
             workspace,
             output,
+            reaper,
         })
     }
 
@@ -541,6 +609,16 @@ impl Drop for Recorder {
         if let Ok(None) = self.child.try_wait() {
             let _ = self.child.kill();
             let _ = self.child.wait();
+        }
+        // The guard outlives its purpose the moment the capture is gone, and it
+        // would notice that by itself — it watches both. Killing it anyway is
+        // what makes that immediate rather than eventual, and the `wait` is what
+        // stops a zombie accumulating per recording. This is the only place
+        // either happens: every exit path from `Recorder` ends here, including
+        // `stop` and `terminate`, because the type implements `Drop`.
+        if let Some(reaper) = self.reaper.as_mut() {
+            let _ = reaper.kill();
+            let _ = reaper.wait();
         }
     }
 }

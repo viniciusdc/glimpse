@@ -138,6 +138,14 @@ journeys-macos: ## Every user journey on macOS, on your real screen
 record-hygiene: ## Press Record and check the attempt leaves nothing behind
 	@scripts/record-hygiene.sh
 
+.PHONY: force-quit
+# The one exit path the application cannot cover from the inside. Linux has the
+# kernel do it; macOS needs the guard process from ADR 0019, and this is the only
+# check that exercises the whole of it — the spawn, the pids, and a guard that
+# outlives the parent it watches.
+force-quit: ## SIGKILL Glimpse mid-recording; nothing may survive it
+	@scripts/force-quit.sh
+
 .PHONY: check-release-names
 # install.sh constructs the archive name release.yml writes, and neither file can
 # see the other. docs/releasing.md flagged that coupling while there was one

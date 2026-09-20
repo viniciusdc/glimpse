@@ -45,6 +45,8 @@ crates/glimpse-macos/   The macOS side: capture backend, and the frame
   src/menubar.rs        The menu bar item: reachable when the window is not
   src/ui.rs             macOS's window model: one window, click-through as a mode
   src/app.rs            Application entry: put the frame up and let it float
+  src/reap.rs           The guard that outlives a force-quit and kills the capture
+  tests/reap.rs         Kills a real parent, checks a real child dies with it
   examples/record.rs    Record a fixed region end to end, no window involved
   examples/capture_rect_follows.rs     The rect tracks the window; it is not cached
   examples/menubar_probe.rs            Can a status item reach the bar without GTK?
@@ -74,6 +76,7 @@ scripts/
   journey-verdict.sh    Did a journey pass? One definition, shared by both runners
   record-hygiene.sh     Press Record; whichever way it goes, nothing may be left behind
   collect-evidence.sh   Gathers what a CI run made and nothing asserts on: pictures
+  force-quit.sh         SIGKILL mid-recording; the capture must die with the app
   clickthrough.sh       A click aimed at the hole must reach the window behind
   selftest.sh           Geometry and input region, with a status the suite can read
   check-journeys.sh     Fails if a journey exists that nothing drives

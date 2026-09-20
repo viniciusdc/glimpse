@@ -471,6 +471,18 @@ jobs:
       - name: Every user journey
         run: GLIMPSE_BIN=./target/release/glimpse scripts/journeys-macos.sh
 
+      # The one exit path the application cannot cover from the inside
+      # (ADR 0019). Linux has `PR_SET_PDEATHSIG` and the kernel does this; macOS
+      # needs the guard process, and this is the only check that exercises all
+      # of it — that Glimpse spawns the guard, points it at the right pids, and
+      # that the guard outlives the parent it is watching.
+      #
+      # The unit tests in `glimpse-macos` drive `reap::watch` directly with two
+      # `sleep` processes, which is where the kqueue logic is pinned down. They
+      # cannot show any of the three things above.
+      - name: A force-quit takes the capture with it
+        run: GLIMPSE_BIN=./target/release/glimpse scripts/force-quit.sh
+
       # The picture, on the platform that needed it.
       #
       # The Linux job has photographed its UI for a while, and the two bugs that
