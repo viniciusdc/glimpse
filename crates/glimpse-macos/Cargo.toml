@@ -21,6 +21,8 @@ glimpse-core = { path = "../glimpse-core" }
 # crate whose portable half is the thing that check exists to protect.
 [target.'cfg(target_os = "macos")'.dependencies]
 gtk4 = { workspace = true }
+# The reaper (ADR 0019) watches the parent with kqueue, which is libc.
+libc = { workspace = true }
 glimpse-ui = { path = "../glimpse-ui" }
 gdk4-macos = { version = "0.11", features = ["v4_8"] }
 objc2 = "0.6"

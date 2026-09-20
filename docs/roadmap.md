@@ -144,17 +144,23 @@ build: growing the window by 90x60 points grows the capture rect by exactly
 
 What is still open alongside it:
 
-- **`die_with_parent` is a no-op off Linux**, so `SIGKILL` orphans a recording
-  ffmpeg on macOS. Harmless while macOS could not record; reachable now that it
-  can, and now reachable from the UI rather than only from an example.
-  `kqueue`'s `NOTE_EXIT` is the analogue of `PR_SET_PDEATHSIG`.
+- **Done — every exit path now takes the recording with it.**
+  `die_with_parent` is still a no-op off Linux, and that gap is closed rather
+  than open.
 
-  The *ordinary* ways out are covered. Closing the window always was; quitting
-  through the application — Cmd-Q, the macOS menu — was not, because `app.quit()`
-  does not emit `close-request`, and `die_with_parent` had been quietly covering
-  for that on Linux the whole time. `Chrome` now reaps from the application's own
-  `shutdown` signal, which every route out passes through. What is left is the
-  signal nobody can handle.
+  The *ordinary* ways out are covered in the app. Closing the window always was;
+  quitting through the application — Cmd-Q, the macOS menu — was not, because
+  `app.quit()` does not emit `close-request`, and `die_with_parent` had been
+  quietly covering for that on Linux the whole time. `Chrome` reaps from the
+  application's `shutdown` signal now, which every route out passes through.
+
+  `SIGKILL` is the one no process can handle for itself, and it was expensive:
+  measured, the orphan wrote about 18 GB/hour while holding the capture device.
+  A guard process — the binary re-run as `glimpse --reap`, blocking on `kqueue`'s
+  `NOTE_EXIT` — closes it
+  ([ADR 0019](adr/0019-a-recording-outlives-a-killed-glimpse.md)), with
+  `make force-quit` exercising the whole path and the start-up sweep still
+  behind it as the backstop.
 - **CI runs every journey on macOS too** ([#56](https://github.com/viniciusdc/glimpse/issues/56)).
   For months it did not, on the belief that a runner cannot record — measured,
   it seemed, by a probe that exited 251 on every build. The probe was capturing

@@ -59,7 +59,50 @@ fn main() -> ExitCode {
     if handled_cli() {
         return ExitCode::SUCCESS;
     }
+    if handled_reap() {
+        return ExitCode::SUCCESS;
+    }
+    // The binary names itself as the guard to re-run, rather than the library
+    // discovering it. `glimpse-core` explains why at `set_reaper_command`: the
+    // obvious `current_exe()` inside the library would make `cargo test`
+    // re-execute the test harness with `--reap`.
+    if let Ok(exe) = std::env::current_exe() {
+        glimpse_core::capture::set_reaper_command(exe);
+    }
     run()
+}
+
+/// `glimpse --reap <parent-pid> <child-pid>` — the guard from
+/// [ADR 0019](../docs/adr/0019-a-recording-outlives-a-killed-glimpse.md).
+///
+/// Answered here, before any toolkit is touched, because this copy of the binary
+/// must never open a display, read a config or put up a window. It watches two
+/// pids and exits.
+///
+/// Not in `--help`, deliberately. No user types it, and documenting an internal
+/// argument invites someone to.
+#[cfg(target_os = "macos")]
+fn handled_reap() -> bool {
+    match glimpse_macos::reap::args_from(std::env::args()) {
+        Some((parent, child)) => {
+            glimpse_macos::reap::watch(parent, child);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Linux has `PR_SET_PDEATHSIG` and never spawns a guard, so nothing should ever
+/// arrive here with `--reap`. Refusing to treat it as a normal launch anyway:
+/// silently putting up a window because an argument was not understood is how a
+/// misrouted invocation becomes a second Glimpse on someone's screen.
+#[cfg(not(target_os = "macos"))]
+fn handled_reap() -> bool {
+    if std::env::args().nth(1).as_deref() == Some("--reap") {
+        eprintln!("glimpse: --reap is a macOS-only internal argument");
+        return true;
+    }
+    false
 }
 
 #[cfg(target_os = "linux")]

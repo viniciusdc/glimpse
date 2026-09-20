@@ -19,6 +19,9 @@
 
 pub mod geometry;
 pub mod grab;
+// The reaper: its argument parsing is portable and tested everywhere, and the
+// kqueue half inside it is macOS-gated (ADR 0019).
+pub mod reap;
 pub mod shortcut;
 pub mod stop;
 
