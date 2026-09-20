@@ -3,6 +3,14 @@
 # Photograph a region of the running macOS app, then always close it.
 #
 #   scripts/shot-macos.sh OUT.png [LEFT_FRAC RIGHT_FRAC]
+#   scripts/shot-macos.sh OUT.png --full        # the whole screen, uncropped
+#
+# WHY --full EXISTS. The crop below converts device pixels to points with a
+# hardcoded 2.0, which is right on every Retina Mac and wrong anywhere else —
+# including a CI runner, where it would photograph the wrong part of the screen
+# and the picture would look like a UI bug rather than a maths bug. A runner's
+# screen has nothing on it worth cropping away, so CI takes all of it and the
+# scale never enters into it.
 #
 # WHY THIS EXISTS. Looking at the macOS UI means launching the real app on a
 # real desktop — there is no Xvfb on macOS, so every window check runs on the
@@ -43,6 +51,12 @@ if ! grep -q 'capture rect' "$LOG"; then
   echo "the app never reported a capture rect:" >&2
   cat "$LOG" >&2
   exit 1
+fi
+
+if [ "$LEFT_FRAC" = "--full" ]; then
+  screencapture -x "$OUT"
+  echo "$OUT: the whole screen"
+  exit 0
 fi
 
 python3 - "$LOG" "$OUT" "$LEFT_FRAC" "$RIGHT_FRAC" <<'PY'
