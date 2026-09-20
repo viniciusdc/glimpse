@@ -73,6 +73,7 @@ scripts/
   journeys-macos.sh     The same journeys on macOS, where off-screen does not exist
   journey-verdict.sh    Did a journey pass? One definition, shared by both runners
   record-hygiene.sh     Press Record; whichever way it goes, nothing may be left behind
+  collect-evidence.sh   Gathers what a CI run made and nothing asserts on: pictures
   clickthrough.sh       A click aimed at the hole must reach the window behind
   selftest.sh           Geometry and input region, with a status the suite can read
   check-journeys.sh     Fails if a journey exists that nothing drives

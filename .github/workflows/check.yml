@@ -471,6 +471,36 @@ jobs:
       - name: Every user journey
         run: GLIMPSE_BIN=./target/release/glimpse scripts/journeys-macos.sh
 
+      # The picture, on the platform that needed it.
+      #
+      # The Linux job has photographed its UI for a while, and the two bugs that
+      # step's comment names as the reason — the status bar on the wrong side of
+      # the frame, a window shadow baked into the top of every recording — were
+      # both macOS bugs. The evidence was being collected on the platform that
+      # did not have them.
+      #
+      # `--full` rather than the crop: that maths assumes a 2x backing scale,
+      # which is every Retina Mac and not a runner, and a wrong crop reads as a
+      # UI bug. A runner's desktop has nothing worth cropping away.
+      #
+      # `if: always()` on both, because a failed journey is exactly when the
+      # picture and the files are worth having.
+      - name: Photograph the macOS UI
+        if: always()
+        run: scripts/shot-macos.sh glimpse-macos.png --full
+
+      - name: Collect the evidence
+        if: always()
+        run: scripts/collect-evidence.sh ci-evidence glimpse-macos.png
+
+      - name: Upload it
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-evidence
+          path: ci-evidence/
+          if-no-files-found: warn
+
   # The integration half. Everything else in this workflow runs `cargo`, which
   # never launches the application: `smoke.sh` and `selftest.sh` existed for a
   # long time and no job called them, so the journeys they drive were verified
@@ -593,12 +623,21 @@ jobs:
         if: always()
         run: make screenshot
 
+      # And everything else this job made and then threw away: the self-test
+      # PNG — the half `selftest.sh` says matters most, run above and never
+      # looked at — and every file the five journeys wrote. They assert a
+      # recording completed and decodes; whether it is a recording OF ANYTHING
+      # is not something an assertion can tell you.
+      - name: Collect the evidence
+        if: always()
+        run: scripts/collect-evidence.sh ci-evidence glimpse-linux.png
+
       - name: Upload it
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: linux-ui
-          path: glimpse-linux.png
+          name: linux-evidence
+          path: ci-evidence/
           if-no-files-found: warn
 
   test:
