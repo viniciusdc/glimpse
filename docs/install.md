@@ -64,10 +64,19 @@ To run it without installing:
 cargo run
 ```
 
-## macOS (in progress)
+## macOS
 
-macOS records, through the same chrome Linux runs. It is still marked in
-progress because it cannot be resized and there is no `.app` bundle yet.
+macOS records, through the same chrome Linux runs, and resizes by dragging the
+window's edges like any other.
+
+This section was headed "in progress" long after it stopped being true, for two
+reasons that had both been fixed: resize, which needed no code once the frame
+became one window, and the `.app` bundle — whose build instructions were already
+twenty lines below the sentence saying it did not exist.
+
+What is genuinely not done is signing and notarization: the bundle is ad-hoc
+signed, so a download through a browser is quarantined and macOS calls it
+damaged, while the same file fetched with `curl` runs.
 
 ```sh
 brew install gtk4 pkg-config ffmpeg
@@ -78,7 +87,7 @@ macOS will ask for Screen Recording permission the first time, and ffmpeg
 captures nothing until it is granted. The permission is granted to the program
 that launched Glimpse — your terminal — not to the binary.
 
-### One thing behaves differently from Linux
+### Two things behave differently from Linux
 
 **While recording, the window stops accepting clicks entirely**, so you can work
 in whatever is being recorded. That means the Stop button cannot be pressed. Use
@@ -92,6 +101,11 @@ it. The same shortcut turns it back off.
 
 Why it works this way, and the six things measured before settling on it, are in
 [ADR 0017](adr/0017-click-through-is-a-mode-not-a-window.md).
+
+**The pointer-capture setting is not offered.** avfoundation ignores
+`-capture_cursor` — measured, and in the OFF direction: the pointer is never
+drawn. A setting a backend cannot honour is hidden on that platform rather than
+shown doing nothing ([ADR 0012](adr/0012-a-setting-a-backend-cannot-honour.md)).
 
 ### Building the app bundle
 
