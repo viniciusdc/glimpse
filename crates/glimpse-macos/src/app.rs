@@ -219,6 +219,23 @@ pub fn run() -> ExitCode {
                 ),
                 Err(e) => eprintln!("glimpse: frame up but the capture rect is unavailable: {e:#}"),
             }
+
+            // On its own line, deliberately. The line above is a contract that
+            // three scripts and a CI step already parse, and widening it to
+            // carry a second fact would put every one of them at risk for the
+            // benefit of one.
+            //
+            // The rect above is in device pixels; `screencapture` takes points.
+            // Anything converting between them needs this number, and the point
+            // of printing it is that it comes from the same screen the rect came
+            // from rather than from a constant somebody assumed.
+            match MainThreadMarker::new().ok_or_else(|| anyhow::anyhow!("not the main thread")) {
+                Ok(mtm) => match crate::window::backing_scale(mtm) {
+                    Ok(s) => println!("glimpse: backing scale {s}"),
+                    Err(e) => eprintln!("glimpse: backing scale unavailable: {e:#}"),
+                },
+                Err(e) => eprintln!("glimpse: backing scale unavailable: {e:#}"),
+            }
         });
 
         // Quit the way a user quitting from the UI would, so every destructor

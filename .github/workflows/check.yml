@@ -497,13 +497,27 @@ jobs:
       #
       # `if: always()` on both, because a failed journey is exactly when the
       # picture and the files are worth having.
+      # Two shots, and the second one is a regression test with a picture
+      # attached.
+      #
+      # The crop converts the app's device-pixel rect into the points
+      # `screencapture` wants, and it used to do that with a hardcoded 2.0 —
+      # right on every Retina Mac, so it never failed for anyone who ran it, and
+      # silently wrong anywhere else. This runner is a **1x** display, which is
+      # exactly the case no developer machine here can exercise: if the scale
+      # were still assumed, the cropped image would be twice the region it
+      # should be, and the step prints the scale it used so the log says which.
       - name: Photograph the macOS UI
         if: always()
-        run: scripts/shot-macos.sh glimpse-macos.png --full
+        run: |
+          scripts/shot-macos.sh glimpse-macos.png --full
+          scripts/shot-macos.sh glimpse-macos-cropped.png
 
       - name: Collect the evidence
         if: always()
-        run: scripts/collect-evidence.sh ci-evidence glimpse-macos.png
+        run: |
+          scripts/collect-evidence.sh ci-evidence \
+            glimpse-macos.png glimpse-macos-cropped.png
 
       - name: Upload it
         if: always()

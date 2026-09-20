@@ -5,12 +5,15 @@
 #   scripts/shot-macos.sh OUT.png [LEFT_FRAC RIGHT_FRAC]
 #   scripts/shot-macos.sh OUT.png --full        # the whole screen, uncropped
 #
-# WHY --full EXISTS. The crop below converts device pixels to points with a
-# hardcoded 2.0, which is right on every Retina Mac and wrong anywhere else —
-# including a CI runner, where it would photograph the wrong part of the screen
-# and the picture would look like a UI bug rather than a maths bug. A runner's
-# screen has nothing on it worth cropping away, so CI takes all of it and the
-# scale never enters into it.
+# THE SCALE IS READ, NOT ASSUMED. The app reports the capture rect in device
+# pixels and `screencapture` takes points, so something has to convert. This
+# hardcoded `2.0` — right on every Retina Mac, wrong on a 1x display and on a CI
+# runner, where it would photograph the wrong region and the picture would read
+# as a UI bug rather than a maths bug. Glimpse now prints `backing scale` beside
+# the rect, from the same NSScreen the rect came from, and this reads that.
+#
+# --full stays, because a runner's desktop has nothing worth cropping away and a
+# whole-screen grab cannot be wrong about geometry at all.
 #
 # WHY THIS EXISTS. Looking at the macOS UI means launching the real app on a
 # real desktop — there is no Xvfb on macOS, so every window check runs on the
@@ -42,7 +45,9 @@ PID=$!
 trap 'kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true' EXIT
 
 for _ in $(seq 1 40); do
-  grep -q 'capture rect' "$LOG" && break
+  # Both lines, because the crop needs both and they are printed one after the
+  # other: waiting only for the rect can win the race for it and lose the scale.
+  grep -q 'capture rect' "$LOG" && grep -q 'backing scale' "$LOG" && break
   kill -0 "$PID" 2>/dev/null || break
   sleep 0.5
 done
@@ -62,10 +67,27 @@ fi
 python3 - "$LOG" "$OUT" "$LEFT_FRAC" "$RIGHT_FRAC" <<'PY'
 import re, subprocess, sys
 log, out, lf, rf = sys.argv[1], sys.argv[2], float(sys.argv[3]), float(sys.argv[4])
-m = re.search(r'capture rect (\d+)x(\d+) at (\d+),(\d+)', open(log).read())
+text = open(log).read()
+m = re.search(r'capture rect (\d+)x(\d+) at (\d+),(\d+)', text)
 w, h, x, y = (int(v) for v in m.groups())
-# Device pixels to points. Only the integer backing factor is trusted.
-s = 2.0
+
+# Device pixels to points, at the scale THIS screen reported.
+#
+# This was `s = 2.0`. Correct on every Retina Mac, so it never failed for anyone
+# who ran it — and silently wrong on a 1x display or a CI runner, where it would
+# crop a region twice the size of the right one and the photograph would look
+# like a broken UI rather than broken arithmetic.
+#
+# Refused rather than defaulted when the line is missing: falling back to 2.0
+# would restore exactly the bug, and would do it on the machines where it is
+# wrong, which are the ones least likely to notice.
+sm = re.search(r'backing scale ([0-9]+(?:\.[0-9]+)?)', text)
+if not sm:
+    sys.exit(
+        "the app did not report a backing scale, so device pixels cannot be "
+        "converted to points. Rebuild: this needs a Glimpse that prints it."
+    )
+s = float(sm.group(1))
 hx, hy, hw, hh = x / s, y / s, w / s, h / s
 # The window is the hole plus its 3pt border, the header above and the status
 # bar below. Generous margins so a shadow or a rounded corner is not clipped.
@@ -74,5 +96,5 @@ width, height = hw + 6 + 24, hh + 49 + 40 + 24
 left += width * lf
 width *= (rf - lf)
 subprocess.run(['screencapture', '-x', f'-R{left},{top},{width},{height}', out], check=True)
-print(f'{out}: {width:.0f}x{height:.0f} points at {left:.0f},{top:.0f}')
+print(f'{out}: {width:.0f}x{height:.0f} points at {left:.0f},{top:.0f} (backing scale {s:g})')
 PY

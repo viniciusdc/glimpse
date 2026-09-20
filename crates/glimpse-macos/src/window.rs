@@ -107,6 +107,27 @@ pub fn capture_rect(hole: AppKitRect, mtm: MainThreadMarker) -> Result<ScreenPix
     Ok(to_screen_pixels(hole, height, scale))
 }
 
+/// The primary screen's backing scale factor: device pixels per AppKit point.
+///
+/// Exists because **anything converting between the two has to get it from
+/// here**, not from a constant. `scripts/shot-macos.sh` hardcoded `2.0` — right
+/// on every Retina Mac, wrong on a 1x display and on a CI runner, where it
+/// cropped the wrong part of the screen and the picture read as a UI bug rather
+/// than a maths bug.
+///
+/// Primary, for the same reason [`capture_rect`] flips against the primary's
+/// height: AppKit coordinates are relative to it whatever display a window is
+/// on. A frame on a second display is refused outright
+/// ([ADR 0018](../../../docs/adr/0018-multi-display-is-refused-not-guessed.md)),
+/// so there is no case where some other screen's factor is the right answer.
+pub fn backing_scale(mtm: MainThreadMarker) -> Result<f64> {
+    NSScreen::screens(mtm)
+        .iter()
+        .next()
+        .map(|s| s.backingScaleFactor())
+        .ok_or_else(|| anyhow!("no screens"))
+}
+
 /// Place and size a window directly.
 ///
 /// Used for the strips, whose geometry is computed rather than inherited. GTK4
