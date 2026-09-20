@@ -30,4 +30,5 @@ replacing it.
   - [0016](0016-the-chrome-is-above-and-below.md) — The macOS chrome is above *and* below the frame
   - [0017](0017-click-through-is-a-mode-not-a-window.md) — Click-through is a mode, not a window
   - [0018](0018-multi-display-is-refused-not-guessed.md) — Multi-display on macOS is refused, not guessed
+  - [0019](0019-a-recording-outlives-a-killed-glimpse.md) — A recording must not outlive a killed Glimpse
 <!-- END GENERATED adr-index -->
