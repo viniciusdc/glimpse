@@ -150,6 +150,31 @@ verify_sources_are_documented() {
   (( undocumented )) || note "source coverage: every module is listed"
 }
 
+# Every `make <target>` the docs name, from both places docs name them.
+#
+# Inline code spans only, at first — and prose is the reason: "make it clear"
+# is not a target, which is how the first version of this check embarrassed
+# itself. But README and CONTRIBUTING list their targets in fenced blocks, not
+# backticks, so the check was reading the form the docs use least. A fake
+# `make totally-fake-target` in CONTRIBUTING's opening block passed it.
+#
+# Fenced blocks are read with the fence state tracked rather than by matching
+# lines that start with `make`, because that is prose again: "make sure the
+# window is up" would be a target called `sure`.
+documented_make_targets() {
+  grep -rhoE '`make [a-z][a-z-]+`' -- *.md docs/*.md docs/adr/*.md 2>/dev/null \
+    | tr -d '`' | awk '{print $2}'
+
+  local f
+  for f in *.md docs/*.md docs/adr/*.md; do
+    [[ -e "$f" ]] || continue
+    awk '
+      /^[[:space:]]*```/ { fenced = !fenced; next }
+      fenced && $1 == "make" && $2 ~ /^[a-z][a-z-]+$/ { print $2 }
+    ' "$f"
+  done
+}
+
 verify_make_targets() {
   local t bad=0
   while read -r t; do
@@ -158,11 +183,73 @@ verify_make_targets() {
       fail "docs reference 'make $t', which is not a target"
       bad=1
     fi
-  # Only inside backticks — otherwise English prose ("make it clear") is matched
-  # as a target, which is how the first version of this check embarrassed itself.
-  done < <(grep -rhoE '`make [a-z][a-z-]+`' -- *.md docs/*.md docs/adr/*.md 2>/dev/null \
-             | tr -d '`' | awk '{print $2}' | sort -u)
+  done < <(documented_make_targets | sort -u)
   (( bad )) || note "make targets: every documented target exists"
+}
+
+# The display names of the jobs in the check workflow, in file order.
+#
+# Scoped to the `jobs:` block, because `on:` has two-space keys of its own and
+# `push` is not a job. A job with no explicit `name:` is reported by its key,
+# which is what GitHub shows.
+workflow_job_names() {
+  awk '
+    function flush() { if (key != "") { print (nm != "" ? nm : key); key = ""; nm = "" } }
+    /^[a-zA-Z_][a-zA-Z0-9_-]*:/ { flush(); injobs = ($1 == "jobs:"); next }
+    injobs && /^  [a-z][a-z0-9_-]*:[[:space:]]*$/ {
+      flush(); key = $1; sub(/:$/, "", key); nm = ""; next
+    }
+    injobs && key != "" && nm == "" && /^    name:[[:space:]]/ {
+      nm = $0
+      sub(/^[[:space:]]*name:[[:space:]]*/, "", nm)
+      gsub(/^["'"'"']|["'"'"']$/, "", nm)
+    }
+    END { flush() }
+  ' .github/workflows/check.yml
+}
+
+# The job names docs/development.md claims CI runs.
+documented_job_names() {
+  awk '
+    /^\| *job *\| *needs *\|/ { intable = 1; next }
+    intable && /^\|[-| :]*$/  { next }
+    intable && !/^\|/         { intable = 0 }
+    intable && /^\|/ {
+      split($0, cell, "|")
+      name = cell[2]
+      gsub(/\*\*/, "", name)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
+      if (name != "") print name
+    }
+  ' docs/development.md
+}
+
+# "What CI runs" must name the jobs CI actually runs.
+#
+# It said "Three jobs, in parallel" and listed three, for months after there
+# were six — omitting both of the two that launch the application, which are
+# the ones a contributor most needs to know exist. Nothing noticed, because a
+# table is prose to every other check here.
+#
+# Names, not counts: a count agrees with itself while naming the wrong three.
+verify_ci_jobs_documented() {
+  local missing undocumented bad=0
+  missing=$(comm -23 <(workflow_job_names | sort -u) <(documented_job_names | sort -u))
+  undocumented=$(comm -13 <(workflow_job_names | sort -u) <(documented_job_names | sort -u))
+
+  while read -r j; do
+    [[ -n "$j" ]] || continue
+    fail "check.yml runs a job named '$j' that docs/development.md does not list"
+    bad=1
+  done <<< "$missing"
+
+  while read -r j; do
+    [[ -n "$j" ]] || continue
+    fail "docs/development.md lists a CI job '$j' that check.yml does not run"
+    bad=1
+  done <<< "$undocumented"
+
+  (( bad )) || note "CI jobs: the workflow and docs/development.md agree"
 }
 
 verify_assets_are_tracked() {
@@ -330,6 +417,7 @@ verify_layout_paths
 verify_no_duplicate_paths
 verify_sources_are_documented
 verify_make_targets
+verify_ci_jobs_documented
 verify_assets_are_tracked
 verify_version_badge
 verify_relative_links
