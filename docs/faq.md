@@ -147,7 +147,7 @@ No, and none of these are planned. Glimpse records one silent region. See *About
 
 ## Are there macOS or Windows builds?
 
-**macOS is in progress. Windows is not.**
+**macOS, yes. Windows, no.**
 
 This answer used to say "no, and there will not be", reasoning that Glimpse works
 by being a window that knows its own position and declares its own capture
@@ -159,11 +159,18 @@ shipped exactly that since 2011. The correction is recorded in
 window model it settled on — after two further corrections — in
 [ADR 0017](adr/0017-click-through-is-a-mode-not-a-window.md).
 
-macOS records today, through the same chrome Linux runs, and resizes by
-dragging the window edge. The one visible difference is that its window stops
-accepting clicks while recording, so the Stop button moves to the menu bar and a
-shortcut; the reasoning is in ADR 0017. What is still missing is an `.app`
-bundle, so there is no release artifact and it is built from source.
+macOS records today, through the same chrome Linux runs, resizes by dragging the
+window edge, and ships as an `Glimpse.app` bundle carrying its own GTK — a
+release artifact like the Linux one, installed by the same `install.sh`.
+
+Two things differ. Its window stops accepting clicks while recording, so the
+Stop button moves to the menu bar and a shortcut (ADR 0017). And the
+pointer-capture switch is not offered, because avfoundation ignores it — the
+answer above this one.
+
+What is genuinely unfinished is signing: the bundle is ad-hoc signed, so a
+download through a browser is quarantined while the same archive fetched with
+`curl` runs.
 
 Windows is untouched. Nobody has measured anything there, so read its absence as
 unexamined rather than settled — which is precisely the mistake this answer made

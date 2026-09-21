@@ -1,8 +1,8 @@
 # Installing Glimpse
 
-Recording works on **X11 and macOS**. macOS is still marked in progress: it
-cannot be resized and there is no `.app` bundle, and it behaves differently in
-one visible way while recording. The last section covers both.
+Recording works on **X11 and macOS**. Both ship a release artifact: a binary on
+the PATH for Linux, an `.app` bundle for macOS. Two things behave differently on
+macOS while recording, and the last section covers them.
 
 ## Requirements
 
@@ -95,9 +95,9 @@ the menu bar item, or the shortcut — `⌃⌥S` unless you change `stop_shortcu
 `~/.config/glimpse/config.toml`. The button is replaced by whichever of those is
 actually available while the mode is on.
 
-The same mode is available on demand, as **Pass clicks through** in the header
-menu, so the frame can be positioned over a live application without blocking
-it. The same shortcut turns it back off.
+The same mode is available on demand, as **Pass clicks through** in the settings
+popover behind the gear, so the frame can be positioned over a live application
+without blocking it. The same shortcut turns it back off.
 
 Why it works this way, and the six things measured before settling on it, are in
 [ADR 0017](adr/0017-click-through-is-a-mode-not-a-window.md).
