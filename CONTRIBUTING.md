@@ -18,8 +18,10 @@ answers it under Wayland too, which is why the check is on the backend GTK chose
 
 ## What a pull request has to clear
 
-- `make check` — doc-drift check, formatting, clippy with warnings-as-errors, and
-  the tests. If you added an ADR or moved a module, `make docs-sync` first.
+- `make check` — doc-drift check, formatting, clippy with warnings-as-errors, the
+  tests, and the two gates that refuse a journey nothing drives or a release
+  artifact the installer and the workflow name differently. If you added an ADR
+  or moved a module, `make docs-sync` first.
 - Anything touching the geometry chain or the widget hierarchy also needs
   `make selftest`, **and you looking at** `/tmp/glimpse-selftest.png`. Say in the
   PR that you did. The suite genuinely cannot catch what that image catches.

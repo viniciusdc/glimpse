@@ -18,19 +18,33 @@ so and exits rather than misbehaving.
 
 ```sh
 make            # list every target
-make check      # docs-check, fmt, clippy, test — fastest-failing first
+make check      # docs-check, fmt, clippy, test, and that no journey or release
+                # artifact is left undriven — fastest-failing first
 make test       # tests only
 ```
 
 ## What CI runs
 
-Three jobs, in parallel, so the wall clock is the slowest one rather than the sum:
+Six jobs, in parallel, so the wall clock is the slowest one rather than the sum:
 
 | job | needs | measured | why it is separate |
 |---|---|---|---|
+| **What changed** | nothing | 6s | Decides which of the others run at all; a docs-only change skips every compile |
 | **Docs** | nothing | 5s | No toolchain, no system libraries, and doc drift has been this project's largest category of finding |
-| **Format** | rustfmt | 15s | Fails in seconds rather than behind a compile |
-| **Clippy and tests** | GTK4 headers, ffmpeg | 60s | The long pole |
+| **Format** | rustfmt | 6s | Fails in seconds rather than behind a compile |
+| **Clippy and tests** | GTK4 headers, ffmpeg | 64s | |
+| **User journeys** | GTK4, ffmpeg, Xvfb | 101s | Launches the application and drives all five journeys; nothing else in the workflow starts a window |
+| **Core on macOS** | GTK4, ffmpeg, a Mac | 240s | The long pole, and the only one on real macOS |
+
+The macOS job does far more than compile. It builds the bundle and proves it runs
+with Homebrew taken away, drives the same five journeys against the same
+verdicts, presses Record and checks nothing is left behind afterwards, and
+force-quits Glimpse mid-recording to check the capture dies with it
+([ADR 0019](adr/0019-a-recording-outlives-a-killed-glimpse.md)).
+
+Both journey jobs also upload what they made — the UI photograph, the self-test
+PNG, the recordings — because every assertion here is about state and exit codes,
+and the two worst UI bugs this project has shipped were only visible in a picture.
 
 Those numbers are measured, and two of them are worth knowing.
 
@@ -55,26 +69,41 @@ snapshot test silently skipped and those paths had no coverage at all while the
 badge stayed green. The test job now asserts the media tests actually ran, because
 a suite that skips is indistinguishable from a suite that passes.
 
-[`releasing.md`](releasing.md) covers cutting one. `Release` builds a tagged Linux binary, running the full suite against the exact
-tree being shipped first. **There is no macOS or Windows build**, and that is a
-design consequence rather than a gap — see below.
+[`releasing.md`](releasing.md) covers cutting one. `Release` builds a tagged Linux
+binary and a macOS `.app` bundle, running the full suite against the exact tree
+being shipped first. **There is no Windows build**, and that is unexamined rather
+than settled — see below.
 
-## Why there is no macOS or Windows build
+## Why there is no Windows build
 
+This section used to be headed "no macOS or Windows build", and its reasoning was:
 Glimpse works by being a window that knows where it is on screen and declares its
-own capture rectangle. Wayland's portal model, macOS and Windows all deliberately
-refuse that. It also links `gdk4-x11` and `x11rb`, and shells out to ffmpeg's
-`x11grab`.
+own capture rectangle, and macOS refuses that.
 
-A build for those platforms would not be a port. It would be a different
-application that happened to share a name — which is the same reasoning that keeps
-Wayland out ([ADR 0002](adr/0002-ffmpeg-pipeline-and-session-model.md)).
+**The macOS half was measured and it is false.** AppKit hit-tests a non-opaque
+window per pixel against its alpha, so a window with a transparent middle
+genuinely is click-through
+([ADR 0011](adr/0011-why-the-macos-frame-is-more-than-one-window.md)). What was
+true is narrower — GTK cannot make a *covered region* click-through there, and
+`gdk_surface_set_input_region` is accepted and silently ignored by the Quartz
+backend — and the conclusion drawn from it was wrong: the hole only has to pass
+clicks while somebody is clicking through it
+([ADR 0017](adr/0017-click-through-is-a-mode-not-a-window.md)).
 
-The genuinely portable code — the session state machine, settings, the encoder's
-argument construction and collision handling — could be compiled and tested
-elsewhere by splitting the crate. That has not been done, because it would test
-logic that already has no platform-specific behaviour, at the cost of a split that
-exists only to serve CI.
+The crate split this section said had "not been done, because it would test logic
+that already has no platform-specific behaviour" has been done, and it was what
+made the macOS frontend possible: `glimpse-core` carries the session machine and
+the encoder, `glimpse-ui` the chrome both platforms render, and each frontend
+owns only its own capture backend
+([ADR 0010](adr/0010-capture-providers-and-a-platform-free-core.md)).
+
+Windows is untouched. Nobody has measured anything there, so read its absence as
+unexamined rather than settled — which is precisely the mistake this section made
+about macOS, for a year, in a file about how to verify things.
+
+Wayland stays out for a reason that *was* checked: its portal model is a
+different application rather than a missing feature
+([the FAQ](faq.md#why-no-wayland-support)).
 
 ## Regenerating the README animation
 

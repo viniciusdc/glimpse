@@ -10,14 +10,15 @@ the capture region. Everything else follows from getting its rectangle right.
 |---|---|---|
 | Language | Rust 2021 | [ADR 0001](adr/0001-rust-and-gtk4.md) |
 | Toolkit | GTK4 via `gtk4-rs` | [ADR 0001](adr/0001-rust-and-gtk4.md), validated by [ADR 0000](adr/0000-x11-framing-window-spike.md) |
-| Positioning | `x11rb` direct to the X server | GTK4 will not tell an app where it is |
-| Capture | `ffmpeg -f x11grab` | [ADR 0002](adr/0002-ffmpeg-pipeline-and-session-model.md) |
+| Positioning | `x11rb` on X11, AppKit's `NSWindow` on macOS | GTK4 will not tell an app where it is, on either |
+| Capture | `ffmpeg -f x11grab`, `-f avfoundation` on macOS | [ADR 0002](adr/0002-ffmpeg-pipeline-and-session-model.md), [ADR 0010](adr/0010-capture-providers-and-a-platform-free-core.md) |
 | Encoding | `ffmpeg palettegen/paletteuse` | [ADR 0002](adr/0002-ffmpeg-pipeline-and-session-model.md) |
 
 ## Modules
 
-Three crates, split so the boundary is enforced by the compiler rather than
+Four crates, split so the boundary is enforced by the compiler rather than
 remembered ([ADR 0010](adr/0010-capture-providers-and-a-platform-free-core.md)).
+[`layout.md`](layout.md) lists every file; this is the shape.
 
 ```
 glimpse                 The binary: CLI, and picking a frontend by target
@@ -29,6 +30,11 @@ glimpse-core            No gtk4, no x11rb, no objc2 — enforced by its manifest
   capture.rs            The ffmpeg recorder: owns the child, reaps on every path
   worker.rs             Runs the recorder off the UI thread; dropping it reaps
   encode.rs             GIF and MP4 encoding, and the atomic commit
+  shutdown.rs           SIGINT/SIGTERM to a flag the UI thread can act on
+
+glimpse-ui              The chrome both platforms render, and the only GTK in common
+  chrome.rs             Header, hole, status, settings, and the journeys
+  hooks.rs              What a frontend must supply for the chrome to work
 
 glimpse-x11             The X11 frontend
   app.rs                Application entry, startup refusals, stale-state sweeps
@@ -36,7 +42,17 @@ glimpse-x11             The X11 frontend
   x11probe.rs           Direct X queries — window origin, root size, shape readback
   geometry.rs           The widget → screen-pixel conversion chain, with clipping
   grab.rs               Rect → x11grab arguments
+
+glimpse-macos           The macOS frontend
+  ui.rs                 One window; click-through is a mode, not a window (ADR 0017)
+  window.rs             Reaching through GTK to the NSWindow; the backing scale
+  grab.rs               Rect → avfoundation arguments, and the screen device lookup
+  reap.rs               The guard that outlives a force-quit (ADR 0019)
 ```
+
+`glimpse-ui` is why the two frontends look the same: the chrome moved there, so
+macOS renders the widgets X11 renders rather than a second implementation of
+them. What each frontend still owns is its window model and its capture backend.
 
 What crosses the boundary is `GrabCommand` — a backend's answer to "how do I
 grab that rectangle?", as pure data. Core owns the ffmpeg child and the output
@@ -127,8 +143,21 @@ knowing:
 `capture.rs` performs the `StartRecorder` / `GracefulStop` / `Terminate` effects.
 `Recorder` exclusively owns the ffmpeg child and waits on it on every exit path
 the process controls, with a `Drop` backstop so a panic or early return cannot
-leak one. A hard kill is the exception — `Drop` cannot run, and the child is
-orthaned; see [ADR 0005](adr/0005-gif-encoding-and-the-atomic-commit.md).
+leak one.
+
+**A hard kill used to be the exception**, because `Drop` cannot run. It is
+covered on both platforms now, by two different mechanisms, because neither
+works on the other: Linux sets `PR_SET_PDEATHSIG` and the kernel takes the child
+down with the parent, and macOS spawns a guard process that watches the parent
+with `kqueue` and kills the capture when it exits
+([ADR 0019](adr/0019-a-recording-outlives-a-killed-glimpse.md)). Measured before
+it was built: an orphan wrote about 18 GB/hour while holding the capture device.
+
+Behind both is `sweep_stale_workspaces`, which at start-up kills a capture whose
+owning process is gone — identified by the workspace path in its argument list,
+never by name — and removes the directory. That is the backstop for the guard
+itself being killed, and the only thing that collects a workspace left by a
+previous boot (issue #45).
 
 The intermediate is **ffv1 in Matroska at `bgr0`**: x11grab emits `bgr0` natively
 and ffv1 stores it unchanged, so the pipeline is conversion-free and the
@@ -145,7 +174,8 @@ argument builder is a pure function so the flags are asserted on in tests.
 ## The interface
 
 Built from the `Glimpse Screen Recording UI` design document, with its colour
-tokens ported verbatim into `ui.rs`'s CSS so the app and the mock cannot drift.
+tokens ported verbatim into `glimpse-ui`'s CSS so the app and the mock cannot
+drift. One stylesheet, in `chrome.rs`, for both platforms.
 
 The window is undecorated — the 44px header *is* the chrome, and it doubles as the
 drag handle ([ADR 0006](adr/0006-the-header-is-the-chrome.md)). The design's four
@@ -163,9 +193,12 @@ theme that recoloured them would make the window prettier and less truthful
 
 ## Driving it
 
-`ui.rs` holds the session state and feeds every user action through
+`chrome.rs` holds the session state and feeds every user action through
 `session::transition`, so the policies live in the tested pure module rather than
-scattered across callbacks. A 100ms driver polls the worker for results and, while
+scattered across callbacks. It is in `glimpse-ui`, so both frontends drive the
+same machine through the same callbacks; what a frontend supplies is
+`PlatformHooks` — the capture rect, the grab command, and whether it can do
+click-through or honour pointer capture at all. A 100ms driver polls the worker for results and, while
 recording, calls `geometry_drifted()` — the checked invariant from ADR 0004. A
 frame that moves mid-recording aborts, because `x11grab` records a fixed rectangle
 and everything after the move would be the wrong region in a file that still looks
@@ -218,10 +251,17 @@ about recording ([ADR 0009](adr/0009-snapshot.md)).
 
 ## What is not here yet
 
-Output selection and persisted settings. Also: an encode in progress cannot be
-cancelled, and a process killed mid-encode leaves a hidden `.part` file behind.
+This section listed four things, and every one of them has since been built:
+output selection and persisted settings (the format chip and `config.toml`),
+cancelling an encode in progress, and the `.part` file a process killed mid-encode
+used to leave behind — `sweep_stale_staging` removes those at start-up, the way
+`sweep_stale_workspaces` removes abandoned recordings.
 
-`lock()` snapshots the rect and disables resizing. It does **not** prevent a
-window manager from moving the window, so drift is a checked invariant
-(`geometry_drifted()`) rather than something GTK is trusted to prevent. See
-[`roadmap.md`](roadmap.md).
+What remains is the one that is a property rather than a gap. `lock()` snapshots
+the rect and disables resizing. It does **not** prevent a window manager from
+moving the window, so drift is a checked invariant (`geometry_drifted()`) rather
+than something GTK is trusted to prevent.
+
+For what is actually unbuilt, [`roadmap.md`](roadmap.md) is the list — kept there
+rather than in two places, which is how this section came to describe a product
+from a year ago.
