@@ -138,12 +138,28 @@ own heading, and **verifies** what cannot be generated without losing prose:
 
 - every path in the [`docs/layout.md`](layout.md) tree exists, and none is listed twice;
 - every module under `src/` appears in that block;
-- every `` `make <target>` `` mentioned in any `.md` is a real target;
-- every relative link in the docs resolves to a real file.
+- every `make <target>` mentioned in any `.md` is a real target — in a fenced
+  block as well as in backticks, which is where most of them are written;
+- the job table in **What CI runs** names exactly the jobs `check.yml` runs;
+- every relative link and heading anchor in the docs resolves;
+- referenced assets exist *and are tracked*, which `.gitignore` once broke.
 
 Add an ADR and `make check` fails until the index is regenerated. Rename a module
-and it fails until the README agrees. That is the intent: the docs cannot quietly
-fall behind the code.
+and it fails until the README agrees. Add a CI job and it fails until that table
+does.
+
+### What it cannot check
+
+**Whether a sentence is true.** This gate has been green through every
+documentation failure this project has had: a README badge saying macOS did not
+record, an install page denying the existence of a bundle whose build
+instructions were sixty lines below, and this section's own neighbour claiming
+CI ran three jobs when it ran six. Links resolved, anchors resolved, hygiene was
+clean, and every claim was false.
+
+Two of those were mechanical and are checked now. The rest is not automatable,
+and the honest mitigation is that someone re-reads the docs when the product
+changes — which is how they were caught, rather than by anything here.
 
 ## Installing
 
